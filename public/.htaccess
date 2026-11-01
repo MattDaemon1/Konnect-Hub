@@ -1,0 +1,55 @@
+# ==============================================================================
+# Konnect Client Portal - Fichier .htaccess pour serveur mutualisé o2switch
+# Serveur Web : LiteSpeed / Apache 2.4+
+# Emplacement recommandé : public_html/ (ou public_html/portail/ pour sous-dossier)
+# ==============================================================================
+
+# 1. Empêcher le listing des répertoires (Directory Browsing)
+Options -Indexes -MultiViews
+
+# 2. Bloquer l'accès aux fichiers sensibles et cachés (.env, .git, .htaccess, etc.)
+<FilesMatch "^\.(env|git|htaccess|htpasswd|ini|log|sh|sql)">
+    Require all denied
+</FilesMatch>
+
+# 3. Réécriture d'URL pour React Router v6 (SPA)
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    
+    # Si déployé à la racine du domaine ou sous-domaine (ex: portail.mattkonnect.fr) :
+    RewriteBase /
+    
+    # NOTE : Si déployé dans un sous-dossier (ex: mattkonnect.fr/portail/), décommentez la ligne ci-dessous :
+    # RewriteBase /portail/
+
+    # Si le fichier ou dossier demandé existe physiquement, le servir directement
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Sinon, rediriger toutes les routes virtuelles React vers index.html (code HTTP 200)
+    RewriteRule ^ index.html [L]
+</IfModule>
+
+# 4. En-têtes de Sécurité HTTP additionnels (OWASP)
+<IfModule mod_headers.c>
+    # Empêcher le détournement de type MIME
+    Header set X-Content-Type-Options "nosniff"
+
+    # Protection contre le Clickjacking
+    Header set X-Frame-Options "SAMEORIGIN"
+
+    # Protection XSS héritée pour anciens navigateurs
+    Header set X-XSS-Protection "1; mode=block"
+
+    # Politique de référent stricte
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # Désactiver les fonctionnalités matérielles non requises
+    Header set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+</IfModule>
+
+# 5. Compression GZIP / Brotli (Optimisation LiteSpeed)
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css application/javascript application/json application/xml image/svg+xml
+</IfModule>
