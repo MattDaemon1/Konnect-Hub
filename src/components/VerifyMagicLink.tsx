@@ -124,7 +124,7 @@ export const VerifyMagicLink: React.FC = () => {
         )}
 
         <div className="border-t border-slate-800 pt-4 text-[11px] text-slate-500">
-          Matt Konnect Client Portal &bull; OWASP Compliant
+          My Konnect &bull; Espace Sécurisé
         </div>
       </div>
     </div>

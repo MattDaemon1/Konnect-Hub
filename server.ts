@@ -14,24 +14,32 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import {
+  handleLoginWithPassword,
   handleRequestMagicLink,
   handleVerifyMagicLink,
   handleGetSession,
   handleLogout,
   handleGetDevInbox,
+  handleChangePassword,
+  handleAdminCreateClient,
 } from './src/server/controllers/authController.ts';
 import {
   handleListDocuments,
   handleDownloadDocument,
+  handleUploadDocument,
 } from './src/server/controllers/documentController.ts';
 import {
   handleListProjects,
+  handleCreateProject,
+  handleUpdateProjectProgress,
 } from './src/server/controllers/projectController.ts';
 import {
   handleListTickets,
   handleCreateTicket,
+  handleReplyTicket,
 } from './src/server/controllers/ticketController.ts';
 import { requireAuth } from './src/server/middleware/authMiddleware.ts';
+import { db } from './src/server/db/index.ts';
 import { MARIADB_SCHEMA_SQL } from './src/server/db/schema.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -80,8 +88,8 @@ async function bootstrapServer() {
   // =========================================================================
   // 2. PARSERS & COOKIES SÉCURISÉS
   // =========================================================================
-  app.use(express.json({ limit: '100kb' })); // Protection anti-DDoS / Payload oversized
-  app.use(express.urlencoded({ extended: true, limit: '100kb' }));
+  app.use(express.json({ limit: '15mb' })); // Support uploads documents chiffrés
+  app.use(express.urlencoded({ extended: true, limit: '15mb' }));
   app.use(cookieParser());
 
   // CORS sécurisé avec support des identifiants (cookies de session)
@@ -89,7 +97,7 @@ async function bootstrapServer() {
     cors({
       origin: true,
       credentials: true,
-      methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     })
   );
@@ -113,7 +121,7 @@ async function bootstrapServer() {
   // Limiteur strict anti-brute force / anti-spam sur la génération de Magic Links
   const magicLinkLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 10, // Max 10 demandes de magic link par 15 min par IP
+    max: 10,
     standardHeaders: true,
     legacyHeaders: false,
     message: {
@@ -127,22 +135,48 @@ async function bootstrapServer() {
   // =========================================================================
 
   // --- Authentification ---
+  app.post('/api/auth/login', handleLoginWithPassword);
+  app.post('/api/auth/change-password', requireAuth, handleChangePassword);
   app.post('/api/auth/magic-link', magicLinkLimiter, handleRequestMagicLink);
   app.post('/api/auth/verify', handleVerifyMagicLink);
   app.get('/api/auth/me', requireAuth, handleGetSession);
   app.post('/api/auth/logout', handleLogout);
   app.get('/api/auth/dev-inbox', handleGetDevInbox);
 
-  // --- Documents (Coffre-fort avec protection IDOR) ---
+  // --- Clients (Administration) ---
+  app.get('/api/clients', requireAuth, (req: any, res: Response) => {
+    if (!req.user || req.user.role !== 'admin') {
+      res.status(403).json({ error: 'Accès réservé aux administrateurs' });
+      return;
+    }
+    const clients = db.getAllClients().map((c) => ({
+      id: c.id,
+      name: c.name,
+      companyName: c.companyName,
+      email: c.email,
+      role: c.role,
+      status: c.status,
+      mustChangePassword: c.mustChangePassword,
+      createdAt: c.createdAt,
+    }));
+    res.status(200).json({ clients });
+  });
+  app.post('/api/clients', requireAuth, handleAdminCreateClient);
+
+  // --- Documents (Coffre-fort avec protection IDOR & Dépôt sécurisé) ---
   app.get('/api/documents', requireAuth, handleListDocuments);
   app.get('/api/documents/:id/download', requireAuth, handleDownloadDocument);
+  app.post('/api/documents/upload', requireAuth, handleUploadDocument);
 
   // --- Projets & Avancement ---
   app.get('/api/projects', requireAuth, handleListProjects);
+  app.post('/api/projects', requireAuth, handleCreateProject);
+  app.patch('/api/projects/:id/progress', requireAuth, handleUpdateProjectProgress);
 
   // --- Tickets de Support & Alertes Admin ---
   app.get('/api/support', requireAuth, handleListTickets);
   app.post('/api/support', requireAuth, handleCreateTicket);
+  app.post('/api/support/:id/reply', requireAuth, handleReplyTicket);
 
   // --- Utilitaire d'export DDL MariaDB o2switch ---
   app.get('/api/system/schema-sql', (_req: Request, res: Response) => {
@@ -154,7 +188,7 @@ async function bootstrapServer() {
   app.get('/api/health', (_req: Request, res: Response) => {
     res.status(200).json({
       status: 'healthy',
-      app: 'Konnect Client Portal',
+      app: 'My Konnect',
       server: 'Node.js on LiteSpeed/Passenger (o2switch)',
       timestamp: new Date().toISOString(),
     });

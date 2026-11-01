@@ -1,104 +1,164 @@
 /**
  * @file Dashboard.tsx
- * @description Tableau de bord principal de l'extranet client Konnect Client Portal
- * Respecte les exigences strictes OWASP, RGPD et les principes du Frontend Design Constitution :
- * - Contrat Top Bar 3 zones
- * - Zero-Pill sur les métadonnées (séparateurs typographiques discrets)
- * - Chiffres tabulaires (`tabular-nums`)
- * - Coffre-fort documentaire avec téléchargement sécurisé anti-IDOR
- * - Suivi de projets avec barres d'avancement
- * - Formulaire de support avec alerte email admin
- * - Documentation et console de test de sécurité intégrée (simulation IDOR)
+ * @description Tableau de bord My Konnect (Espace Client & Espace Administration)
+ * Intègre les fonctionnalités de création et de gestion :
+ * - Création de client exclusive à l'Admin avec premier changement de mot de passe obligatoire
+ * - Création de projet exclusive à l'Admin
+ * - Dépôt de document par le Client ET l'Admin (avec affectation client pour l'Admin)
+ * - Traitement des tickets de support par l'Admin avec option de clôture ou maintien ouvert
+ * - Logo officiel vectoriel Matt Konnect (mattkonnect.com)
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
-import { Project, DocumentRecord, SupportTicket, DocumentCategory } from '../types/index.ts';
+import { Project, DocumentRecord, SupportTicket, DocumentCategory, Client } from '../types/index.ts';
+import { MattKonnectLogo } from './MattKonnectLogo.tsx';
 import {
   FolderKanban,
-  FileCheck2,
+  FileText,
   LifeBuoy,
-  Server,
   Download,
   Send,
-  AlertTriangle,
-  CheckCircle,
-  Clock,
   LogOut,
   RefreshCw,
-  Copy,
-  Check,
+  Users,
+  CheckCircle2,
+  Clock,
+  Plus,
+  Upload,
+  KeyRound,
+  Eye,
+  EyeOff,
   Building,
+  Check,
+  AlertCircle,
+  X,
+  FileUp,
+  ShieldCheck,
 } from 'lucide-react';
 
-type TabKey = 'projects' | 'documents' | 'support' | 'deployment';
+type TabKey = 'projects' | 'documents' | 'support' | 'clients';
 
 export const Dashboard: React.FC = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, changePassword } = useAuth();
+  const isAdmin = user?.role === 'admin';
+
+  // Onglet actif
   const [activeTab, setActiveTab] = useState<TabKey>('projects');
 
-  // Données dynamiques
+  // Données
   const [projects, setProjects] = useState<Project[]>([]);
   const [documents, setDocuments] = useState<DocumentRecord[]>([]);
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState<boolean>(true);
+  const [clientsList, setClientsList] = useState<Client[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Filtre documents
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [ticketFilter, setTicketFilter] = useState<'all' | 'open' | 'resolved'>('all');
 
-  // Formulaire Support Ticket
+  // Modals d'actions
+  const [showCreateClientModal, setShowCreateClientModal] = useState<boolean>(false);
+  const [showCreateProjectModal, setShowCreateProjectModal] = useState<boolean>(false);
+  const [showUploadDocModal, setShowUploadDocModal] = useState<boolean>(false);
+
+  // Formulaire : Création Client (Admin)
+  const [newClientName, setNewClientName] = useState<string>('');
+  const [newClientCompany, setNewClientCompany] = useState<string>('');
+  const [newClientEmail, setNewClientEmail] = useState<string>('');
+  const [newClientInitialPassword, setNewClientInitialPassword] = useState<string>('Client2026!');
+  const [isCreatingClient, setIsCreatingClient] = useState<boolean>(false);
+  const [clientCreationError, setClientCreationError] = useState<string | null>(null);
+
+  // Formulaire : Création Projet (Admin)
+  const [newProjectClientId, setNewProjectClientId] = useState<string>('');
+  const [newProjectTitle, setNewProjectTitle] = useState<string>('');
+  const [newProjectDescription, setNewProjectDescription] = useState<string>('');
+  const [newProjectProgress, setNewProjectProgress] = useState<number>(10);
+  const [newProjectStatus, setNewProjectStatus] = useState<Project['status']>('in_progress');
+  const [isCreatingProject, setIsCreatingProject] = useState<boolean>(false);
+  const [projectCreationError, setProjectCreationError] = useState<string | null>(null);
+
+  // Formulaire : Dépôt Document (Client & Admin)
+  const [docTitle, setDocTitle] = useState<string>('');
+  const [docCategory, setDocCategory] = useState<DocumentCategory>('livrable');
+  const [docTargetClientId, setDocTargetClientId] = useState<string>('');
+  const [selectedFile, setSelectedFile] = useState<{ name: string; dataUrl: string; mimeType: string } | null>(null);
+  const [isUploadingDoc, setIsUploadingDoc] = useState<boolean>(false);
+  const [docUploadError, setDocUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Formulaire : Ticket Support (Client)
   const [ticketSubject, setTicketSubject] = useState<string>('');
   const [ticketMessage, setTicketMessage] = useState<string>('');
   const [ticketPriority, setTicketPriority] = useState<'low' | 'medium' | 'high' | 'urgent'>('medium');
   const [isSubmittingTicket, setIsSubmittingTicket] = useState<boolean>(false);
-  const [ticketFeedback, setTicketFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [ticketSuccessMsg, setTicketSuccessMsg] = useState<string | null>(null);
 
-  // État du test de pénétration IDOR en direct
-  const [idorTestResult, setIdorTestResult] = useState<{ status: 'idle' | 'testing' | 'blocked' | 'error'; message: string; httpStatus?: number } | null>(null);
+  // Réponse Ticket (Admin)
+  const [replyTicketId, setReplyTicketId] = useState<string | null>(null);
+  const [adminReplyText, setAdminReplyText] = useState<string>('');
+  const [isSubmittingReply, setIsSubmittingReply] = useState<boolean>(false);
 
-  // Presse-papier
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  // Modal obligatoire : Changement de mot de passe à la 1ère connexion
+  const [newPasswordValue, setNewPasswordValue] = useState<string>('');
+  const [confirmPasswordValue, setConfirmPasswordValue] = useState<string>('');
+  const [showPwdText, setShowPwdText] = useState<boolean>(false);
+  const [isChangingPassword, setIsChangingPassword] = useState<boolean>(false);
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
 
-  const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 2000);
-  };
-
-  // Chargement des données du client connecté
-  const loadDashboardData = useCallback(async () => {
+  // Chargement des données
+  const fetchData = useCallback(async () => {
     try {
-      setIsLoadingData(true);
-      const [projRes, docRes, tktRes] = await Promise.all([
+      setIsLoading(true);
+      const requests = [
         fetch('/api/projects', { credentials: 'include' }),
         fetch('/api/documents', { credentials: 'include' }),
         fetch('/api/support', { credentials: 'include' }),
-      ]);
+      ];
+
+      if (isAdmin) {
+        requests.push(fetch('/api/clients', { credentials: 'include' }));
+      }
+
+      const responses = await Promise.all(requests);
+      const [projRes, docRes, tktRes, clientRes] = responses;
 
       if (projRes.ok) {
-        const data = await projRes.json();
-        setProjects(data.projects || []);
+        const d = await projRes.json();
+        setProjects(d.projects || []);
       }
       if (docRes.ok) {
-        const data = await docRes.json();
-        setDocuments(data.documents || []);
+        const d = await docRes.json();
+        setDocuments(d.documents || []);
       }
       if (tktRes.ok) {
-        const data = await tktRes.json();
-        setTickets(data.tickets || []);
+        const d = await tktRes.json();
+        setTickets(d.tickets || []);
+      }
+      if (clientRes && clientRes.ok) {
+        const d = await clientRes.json();
+        const loadedClients: Client[] = d.clients || [];
+        setClientsList(loadedClients);
+        // Pré-sélectionner le premier client pour les formulaires admin
+        if (loadedClients.length > 0 && !newProjectClientId) {
+          const firstClient = loadedClients.find((c) => c.role === 'client') || loadedClients[0];
+          setNewProjectClientId(firstClient.id);
+          setDocTargetClientId(firstClient.id);
+        }
       }
     } catch (err) {
-      console.error('[Dashboard] Erreur lors de la récupération des données:', err);
+      console.error('[My Konnect] Erreur chargement données:', err);
     } finally {
-      setIsLoadingData(false);
+      setIsLoading(false);
     }
-  }, []);
+  }, [isAdmin, newProjectClientId]);
 
   useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
+    fetchData();
+  }, [fetchData]);
 
-  // Téléchargement sécurisé de document via GET /api/documents/:id/download
+  // Téléchargement sécurisé
   const handleDownload = async (docId: string, title: string) => {
     try {
       const res = await fetch(`/api/documents/${docId}/download`, {
@@ -107,79 +167,213 @@ export const Dashboard: React.FC = () => {
       });
 
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        alert(`Échec du téléchargement : ${errJson.error || 'Erreur lors de la récupération du fichier.'}`);
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Erreur lors du téléchargement du fichier.');
         return;
       }
 
-      // Récupération du blob et déclenchement du téléchargement navigateur
       const blob = await res.blob();
-      const downloadUrl = window.URL.createObjectURL(blob);
+      const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = downloadUrl;
-      // Nommage de repli propre
+      a.href = url;
       a.download = `${title.toLowerCase().replace(/[^a-z0-9]/g, '_')}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-      window.URL.revokeObjectURL(downloadUrl);
-    } catch (err) {
+      window.URL.revokeObjectURL(url);
+    } catch {
       alert('Erreur réseau lors du téléchargement.');
     }
   };
 
-  // Test de violation IDOR (tentative d'accès à un document tiers)
-  const handleRunIdorTest = async () => {
+  // Traitement sélection de fichier upload
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!docTitle.trim()) {
+      // Déduire le titre du nom de fichier propre
+      const cleanName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+      setDocTitle(cleanName.charAt(0).toUpperCase() + cleanName.slice(1));
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setSelectedFile({
+        name: file.name,
+        dataUrl: reader.result as string,
+        mimeType: file.type || 'application/pdf',
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Soumission Dépôt Document (Client & Admin)
+  const handleUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!docTitle.trim() || !selectedFile || isUploadingDoc) return;
+
     try {
-      setIdorTestResult({ status: 'testing', message: 'Envoi d\'une requête vers un document tiers (doc_5 appartenant à un autre client)...' });
-      const res = await fetch('/api/documents/doc_5/download', {
-        method: 'GET',
+      setIsUploadingDoc(true);
+      setDocUploadError(null);
+
+      const res = await fetch('/api/documents/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: docTitle.trim(),
+          category: docCategory,
+          filename: selectedFile.name,
+          fileData: selectedFile.dataUrl,
+          mimeType: selectedFile.mimeType,
+          targetClientId: isAdmin ? docTargetClientId : undefined,
+        }),
         credentials: 'include',
       });
 
-      if (res.status === 403) {
-        const body = await res.json();
-        setIdorTestResult({
-          status: 'blocked',
-          httpStatus: 403,
-          message: `Succès du blindage OWASP : Le serveur a rejeté la requête avec HTTP 403 Forbidden. Détail : "${body.error}"`,
-        });
-      } else if (res.ok) {
-        setIdorTestResult({
-          status: 'error',
-          httpStatus: 200,
-          message: 'ALERTE CRITIQUE : La ressource d\'un autre client a été renvoyée ! (IDOR non protégé)',
-        });
-      } else {
-        setIdorTestResult({
-          status: 'blocked',
-          httpStatus: res.status,
-          message: `Requête bloquée avec le code HTTP ${res.status}.`,
-        });
+      const data = await res.json();
+      if (!res.ok) {
+        setDocUploadError(data.error || 'Erreur lors du dépôt du document');
+        return;
       }
-    } catch (err) {
-      setIdorTestResult({
-        status: 'error',
-        message: 'Erreur lors du test de sécurité.',
-      });
+
+      // Succès
+      setShowUploadDocModal(false);
+      setDocTitle('');
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      fetchData();
+    } catch {
+      setDocUploadError('Erreur de connexion au serveur');
+    } finally {
+      setIsUploadingDoc(false);
     }
   };
 
-  // Envoi d'un nouveau ticket support
-  const handleTicketSubmit = async (e: React.FormEvent) => {
+  // Soumission Création Client (Admin)
+  const handleCreateClientSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newClientName.trim() || !newClientEmail.trim() || !newClientCompany.trim() || isCreatingClient) return;
+
+    try {
+      setIsCreatingClient(true);
+      setClientCreationError(null);
+
+      const res = await fetch('/api/clients', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newClientName.trim(),
+          companyName: newClientCompany.trim(),
+          email: newClientEmail.trim(),
+          initialPassword: newClientInitialPassword.trim(),
+        }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setClientCreationError(data.error || 'Erreur lors de la création du compte client');
+        return;
+      }
+
+      // Succès
+      setShowCreateClientModal(false);
+      setNewClientName('');
+      setNewClientCompany('');
+      setNewClientEmail('');
+      setNewClientInitialPassword('Client2026!');
+      fetchData();
+    } catch {
+      setClientCreationError('Erreur réseau');
+    } finally {
+      setIsCreatingClient(false);
+    }
+  };
+
+  // Soumission Création Projet (Admin)
+  const handleCreateProjectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProjectTitle.trim() || !newProjectDescription.trim() || !newProjectClientId || isCreatingProject) return;
+
+    try {
+      setIsCreatingProject(true);
+      setProjectCreationError(null);
+
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: newProjectClientId,
+          title: newProjectTitle.trim(),
+          description: newProjectDescription.trim(),
+          progressPercentage: Number(newProjectProgress) || 0,
+          status: newProjectStatus,
+        }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setProjectCreationError(data.error || 'Erreur lors de la création du projet');
+        return;
+      }
+
+      setShowCreateProjectModal(false);
+      setNewProjectTitle('');
+      setNewProjectDescription('');
+      setNewProjectProgress(10);
+      setNewProjectStatus('in_progress');
+      fetchData();
+    } catch {
+      setProjectCreationError('Erreur réseau');
+    } finally {
+      setIsCreatingProject(false);
+    }
+  };
+
+  // Mise à jour de l'avancement d'un projet (Admin)
+  const handleUpdateProgress = async (projectId: string, currentProgress: number) => {
+    const newProgressStr = prompt('Nouveau taux d\'avancement (0 à 100 %) :', currentProgress.toString());
+    if (newProgressStr === null) return;
+
+    const newProgress = parseInt(newProgressStr, 10);
+    if (isNaN(newProgress) || newProgress < 0 || newProgress > 100) {
+      alert('Veuillez saisir un nombre valide entre 0 et 100.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/progress`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          progressPercentage: newProgress,
+          status: newProgress === 100 ? 'completed' : 'in_progress',
+        }),
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        fetchData();
+      }
+    } catch {
+      alert('Erreur lors de la mise à jour');
+    }
+  };
+
+  // Envoi de ticket support par le client
+  const handleCreateTicket = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!ticketSubject.trim() || !ticketMessage.trim() || isSubmittingTicket) return;
 
     try {
       setIsSubmittingTicket(true);
-      setTicketFeedback(null);
+      setTicketSuccessMsg(null);
 
       const res = await fetch('/api/support', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           subject: ticketSubject.trim(),
           message: ticketMessage.trim(),
@@ -188,40 +382,94 @@ export const Dashboard: React.FC = () => {
         credentials: 'include',
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        setTicketFeedback({
-          type: 'error',
-          message: data.error || 'Erreur lors de la transmission du ticket.',
-        });
-        return;
+      if (res.ok) {
+        setTicketSuccessMsg('Votre demande a bien été transmise à l\'équipe Matt Konnect.');
+        setTicketSubject('');
+        setTicketMessage('');
+        setTicketPriority('medium');
+        fetchData();
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Erreur lors de l\'envoi du ticket');
       }
-
-      setTicketFeedback({
-        type: 'success',
-        message: 'Votre ticket a été transmis à l\'équipe Matt Konnect. Une notification email a été expédiée à l\'administrateur.',
-      });
-
-      setTicketSubject('');
-      setTicketMessage('');
-      setTicketPriority('medium');
-      // Recharger la liste des tickets
-      loadDashboardData();
     } catch {
-      setTicketFeedback({
-        type: 'error',
-        message: 'Erreur de connexion avec le serveur.',
-      });
+      alert('Erreur réseau lors de la création du ticket');
     } finally {
       setIsSubmittingTicket(false);
     }
   };
 
-  // Filtrage des documents par catégorie
+  // Répondre à un ticket avec choix du statut (Admin)
+  const handleAdminReply = async (ticketId: string, status: 'open' | 'resolved') => {
+    if (!adminReplyText.trim() || isSubmittingReply) return;
+
+    try {
+      setIsSubmittingReply(true);
+      const res = await fetch(`/api/support/${ticketId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reply: adminReplyText.trim(),
+          status,
+        }),
+        credentials: 'include',
+      });
+
+      if (res.ok) {
+        setReplyTicketId(null);
+        setAdminReplyText('');
+        fetchData();
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Erreur lors de la réponse au ticket');
+      }
+    } catch {
+      alert('Erreur réseau');
+    } finally {
+      setIsSubmittingReply(false);
+    }
+  };
+
+  // Soumission du premier changement de mot de passe (Client)
+  const handleFirstPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPasswordValue || isChangingPassword) return;
+
+    if (newPasswordValue.length < 6) {
+      setPasswordChangeError('Le mot de passe doit comporter au moins 6 caractères.');
+      return;
+    }
+
+    if (newPasswordValue !== confirmPasswordValue) {
+      setPasswordChangeError('Les deux mots de passe ne correspondent pas.');
+      return;
+    }
+
+    try {
+      setIsChangingPassword(true);
+      setPasswordChangeError(null);
+      const success = await changePassword(newPasswordValue);
+      if (success) {
+        setNewPasswordValue('');
+        setConfirmPasswordValue('');
+      } else {
+        setPasswordChangeError('Impossible de mettre à jour le mot de passe.');
+      }
+    } catch {
+      setPasswordChangeError('Erreur réseau');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
+
   const filteredDocuments = documents.filter((doc) => {
     if (categoryFilter === 'all') return true;
     return doc.category === categoryFilter;
+  });
+
+  const filteredTickets = tickets.filter((t) => {
+    if (ticketFilter === 'all') return true;
+    return t.status === ticketFilter;
   });
 
   const formatFileSize = (bytes: number): string => {
@@ -233,13 +481,15 @@ export const Dashboard: React.FC = () => {
   const getCategoryLabel = (category: DocumentCategory): string => {
     switch (category) {
       case 'audit_seo':
-        return 'Audit SEO Technique';
+        return 'Audit SEO';
       case 'audit_rgpd':
         return 'Conformité RGPD';
       case 'facture':
-        return 'Facture & Comptabilité';
+        return 'Facture';
       case 'livrable':
-        return 'Livrable Projet';
+        return 'Livrable';
+      case 'autre':
+        return 'Document Déposé';
       default:
         return category;
     }
@@ -248,235 +498,277 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col selection:bg-slate-800 selection:text-white">
       {/* =========================================================================
-          TOP BAR CONTRACT (ZONE 1: Wordmark - ZONE 2: 4-5 Nav Links - ZONE 3: 1 Action)
+          BARRE SUPÉRIEURE ÉPURÉE AVEC LE LOGO OFFICIEL MATTKONNECT.COM
           ========================================================================= */}
-      <header className="border-b border-slate-900 bg-slate-950/95 sticky top-0 z-40 backdrop-blur-md px-6 py-3.5">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-8">
-          {/* Zone 1: Brand Wordmark (Single text element) */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="w-8 h-8 rounded bg-slate-900 border border-slate-800 flex items-center justify-center text-white font-bold text-xs">
-              MK
-            </div>
-            <span className="text-base font-bold tracking-tight text-white whitespace-nowrap">
-              Konnect Client Portal
-            </span>
-          </div>
+      <header className="border-b border-slate-900 bg-slate-950/95 backdrop-blur-sm sticky top-0 z-40 px-6 py-3.5">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-6">
+          {/* Logo officiel Mattkonnect.com */}
+          <MattKonnectLogo size="md" showSubtitle={true} />
 
-          {/* Zone 2: Navigation Links / Segmented Tabs (Clean Typography, single-line) */}
-          <nav className="hidden md:flex items-center gap-6 text-xs font-medium text-slate-400">
+          {/* Navigation sobre et concise */}
+          <nav className="hidden sm:flex items-center gap-6 text-xs font-medium text-slate-400">
             <button
               onClick={() => setActiveTab('projects')}
-              className={`hover:text-white transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'projects' ? 'text-white font-semibold underline underline-offset-8 decoration-sky-400 decoration-2' : ''
+              className={`transition-colors flex items-center gap-1.5 ${
+                activeTab === 'projects' ? 'text-white font-semibold' : 'hover:text-slate-200'
               }`}
             >
               <FolderKanban className="w-3.5 h-3.5" />
-              <span>Projets &amp; Avancement</span>
+              <span>Projets</span>
             </button>
 
             <button
               onClick={() => setActiveTab('documents')}
-              className={`hover:text-white transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'documents' ? 'text-white font-semibold underline underline-offset-8 decoration-sky-400 decoration-2' : ''
+              className={`transition-colors flex items-center gap-1.5 ${
+                activeTab === 'documents' ? 'text-white font-semibold' : 'hover:text-slate-200'
               }`}
             >
-              <FileCheck2 className="w-3.5 h-3.5" />
-              <span>Coffre-Fort Documents</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>Documents</span>
             </button>
 
             <button
               onClick={() => setActiveTab('support')}
-              className={`hover:text-white transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'support' ? 'text-white font-semibold underline underline-offset-8 decoration-sky-400 decoration-2' : ''
+              className={`transition-colors flex items-center gap-1.5 ${
+                activeTab === 'support' ? 'text-white font-semibold' : 'hover:text-slate-200'
               }`}
             >
               <LifeBuoy className="w-3.5 h-3.5" />
-              <span>Support &amp; Assistance</span>
+              <span>Support</span>
             </button>
 
-            <button
-              onClick={() => setActiveTab('deployment')}
-              className={`hover:text-white transition-colors whitespace-nowrap flex items-center gap-1.5 ${
-                activeTab === 'deployment' ? 'text-white font-semibold underline underline-offset-8 decoration-sky-400 decoration-2' : ''
-              }`}
-            >
-              <Server className="w-3.5 h-3.5" />
-              <span>Déploiement o2switch &amp; OWASP</span>
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => setActiveTab('clients')}
+                className={`transition-colors flex items-center gap-1.5 ${
+                  activeTab === 'clients' ? 'text-white font-semibold' : 'hover:text-slate-200'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>Clients</span>
+              </button>
+            )}
           </nav>
 
-          {/* Zone 3: Primary Action & Session Context */}
-          <div className="flex items-center gap-4 shrink-0">
-            <div className="hidden sm:flex flex-col text-right text-xs">
-              <span className="font-semibold text-slate-200 truncate max-w-[180px]">
-                {user?.companyName || user?.name}
-              </span>
-              <span className="text-[11px] text-slate-500 truncate max-w-[180px]">
-                {user?.email}
-              </span>
+          {/* Profil utilisateur & Déconnexion */}
+          <div className="flex items-center gap-4">
+            <div className="text-right text-xs">
+              <div className="font-medium text-slate-200 flex items-center justify-end gap-1.5">
+                <span>{user?.name}</span>
+                {isAdmin && (
+                  <span className="text-[10px] text-sky-400 font-mono bg-sky-950/60 border border-sky-800/80 px-1.5 py-0.2 rounded">
+                    Admin
+                  </span>
+                )}
+              </div>
+              <div className="text-[11px] text-slate-500">{user?.companyName}</div>
             </div>
 
             <button
               onClick={() => logout()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded transition-colors whitespace-nowrap"
-              title="Clôturer la session HTTP-Only"
+              className="p-2 text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded transition-colors"
+              title="Se déconnecter"
             >
               <LogOut className="w-3.5 h-3.5" />
-              <span>Déconnexion</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Barre de navigation mobile */}
-      <div className="md:hidden flex overflow-x-auto border-b border-slate-900 bg-slate-950 px-4 py-2 gap-2 text-xs">
+      {/* Navigation mobile */}
+      <div className="sm:hidden flex border-b border-slate-900 bg-slate-950 px-4 py-2 gap-2 text-xs overflow-x-auto">
         <button
           onClick={() => setActiveTab('projects')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap ${activeTab === 'projects' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
+          className={`px-3 py-1 rounded ${activeTab === 'projects' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
         >
           Projets
         </button>
         <button
           onClick={() => setActiveTab('documents')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap ${activeTab === 'documents' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
+          className={`px-3 py-1 rounded ${activeTab === 'documents' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
         >
           Documents
         </button>
         <button
           onClick={() => setActiveTab('support')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap ${activeTab === 'support' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
+          className={`px-3 py-1 rounded ${activeTab === 'support' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
         >
           Support
         </button>
-        <button
-          onClick={() => setActiveTab('deployment')}
-          className={`px-3 py-1.5 rounded whitespace-nowrap ${activeTab === 'deployment' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
-        >
-          o2switch &amp; OWASP
-        </button>
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab('clients')}
+            className={`px-3 py-1 rounded ${activeTab === 'clients' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
+          >
+            Clients
+          </button>
+        )}
       </div>
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-8">
-        {/* Bandeau d'en-tête client & Isolation */}
-        <div className="mb-8 border-b border-slate-900 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* =========================================================================
+          CONTENU PRINCIPAL
+          ========================================================================= */}
+      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-8 space-y-6">
+        {/* Entête épurée avec actions rapides selon le rôle */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-slate-900 gap-4">
           <div>
-            <div className="text-xs text-slate-500 mb-1 flex items-center gap-2">
-              <Building className="w-3.5 h-3.5" />
-              <span>Espace Client Dédié</span>
-              <span aria-hidden="true">·</span>
-              <span>Tenant ID: <code className="text-slate-400 font-mono">{user?.id}</code></span>
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">
-              Bienvenue, {user?.name}
+            <h1 className="text-xl font-bold tracking-tight text-white">
+              {isAdmin ? 'Espace Administration My Konnect' : 'Espace Client'}
             </h1>
-            <p className="text-xs text-slate-400 mt-1">
-              Plateforme hébergée sous LiteSpeed o2switch &bull; Données chiffrées &bull; Session protégée par cookie HTTP-Only
+            <p className="text-xs text-slate-400 mt-0.5">
+              {isAdmin
+                ? 'Gestion des clients, suivi des chantiers et assistance technique'
+                : `Bienvenue, ${user?.name}. Retrouvez vos projets, audits et déposez vos documents.`}
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {/* Action d'upload de document (Accessible au Client ET à l'Admin) */}
             <button
-              onClick={loadDashboardData}
-              disabled={isLoadingData}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white bg-slate-900 border border-slate-800 rounded transition-colors"
+              onClick={() => {
+                setDocUploadError(null);
+                setShowUploadDocModal(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded transition-colors"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingData ? 'animate-spin' : ''}`} />
-              <span>Actualiser</span>
+              <Upload className="w-3.5 h-3.5 text-sky-400" />
+              <span>Déposer un document</span>
+            </button>
+
+            {/* Actions exclusives Administrateur */}
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => {
+                    setProjectCreationError(null);
+                    setShowCreateProjectModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Nouveau Projet</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setClientCreationError(null);
+                    setShowCreateClientModal(true);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-950 bg-white hover:bg-slate-200 rounded transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Nouveau Client</span>
+                </button>
+              </>
+            )}
+
+            <button
+              onClick={fetchData}
+              disabled={isLoading}
+              className="p-1.5 text-slate-400 hover:text-slate-200 bg-slate-900 border border-slate-800 rounded transition-colors"
+              title="Actualiser les données"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             </button>
           </div>
         </div>
 
         {/* =========================================================================
-            TAB 1: PROJETS & AVANCEMENT
+            ONGLET 1 : PROJETS
             ========================================================================= */}
         {activeTab === 'projects' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Projets en cours &amp; Livrables</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Suivi en temps réel des chantiers techniques et optimisations SEO / RGPD
-                </p>
-              </div>
-              <div className="text-xs text-slate-400 tabular-nums">
-                {projects.length} projet{projects.length > 1 ? 's' : ''} actif{projects.length > 1 ? 's' : ''}
-              </div>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>{projects.length} projet{projects.length > 1 ? 's' : ''} actif{projects.length > 1 ? 's' : ''}</span>
+              {isAdmin && (
+                <span className="text-slate-500">
+                  Cliquez sur un pourcentage pour ajuster l'avancement
+                </span>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {projects.map((project) => (
-                <div
-                  key={project.id}
-                  className="bg-slate-900/60 border border-slate-800 rounded-lg p-5 flex flex-col justify-between space-y-4 hover:border-slate-700 transition-colors"
-                >
-                  <div className="space-y-2.5">
-                    {/* Zero-Pill metadata header */}
-                    <div className="flex items-center justify-between text-xs text-slate-400">
-                      <span className="font-mono">{project.id}</span>
-                      <span className="capitalize text-slate-300">
-                        {project.status === 'in_progress' ? 'En cours' : project.status === 'completed' ? 'Terminé' : 'En pause'}
-                      </span>
-                    </div>
-
-                    <h3 className="text-base font-semibold text-white leading-snug">
-                      {project.title}
-                    </h3>
-
-                    <p className="text-xs text-slate-400 leading-relaxed line-clamp-3">
-                      {project.description}
-                    </p>
-                  </div>
-
-                  {/* Progression & Métriques */}
-                  <div className="space-y-2 pt-2 border-t border-slate-900">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-slate-400">Taux d'avancement</span>
-                      <span className="font-bold text-sky-400 tabular-nums">
-                        {project.progressPercentage}%
-                      </span>
-                    </div>
-
-                    <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          project.progressPercentage === 100
-                            ? 'bg-emerald-500'
-                            : 'bg-sky-500'
-                        }`}
-                        style={{ width: `${project.progressPercentage}%` }}
-                      />
-                    </div>
-
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                      <span>Créé le {new Date(project.createdAt).toLocaleDateString('fr-FR')}</span>
-                      <span>{project.deliverablesCount || 0} livrables associés</span>
-                    </div>
-                  </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {projects.length === 0 ? (
+                <div className="col-span-full p-10 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-lg">
+                  Aucun projet enregistré. {isAdmin && 'Cliquez sur "Nouveau Projet" pour en créer un.'}
                 </div>
-              ))}
+              ) : (
+                projects.map((project) => (
+                  <div
+                    key={project.id}
+                    className="bg-slate-900/60 border border-slate-800 rounded-lg p-5 flex flex-col justify-between space-y-4 hover:border-slate-700/80 transition-colors"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-slate-400">
+                        <span className="font-mono text-[11px] text-slate-500">{project.id}</span>
+                        {isAdmin && project.clientCompany && (
+                          <span className="text-sky-300 font-medium truncate max-w-[140px]">
+                            {project.clientCompany}
+                          </span>
+                        )}
+                        <span className="text-[11px] text-slate-300">
+                          {project.status === 'completed'
+                            ? 'Terminé'
+                            : project.status === 'on_hold'
+                            ? 'En pause'
+                            : 'En cours'}
+                        </span>
+                      </div>
+
+                      <h2 className="text-sm font-semibold text-white leading-snug">
+                        {project.title}
+                      </h2>
+
+                      <p className="text-xs text-slate-400 line-clamp-3 leading-relaxed">
+                        {project.description}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2 pt-2 border-t border-slate-800/80">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Avancement</span>
+                        {isAdmin ? (
+                          <button
+                            onClick={() => handleUpdateProgress(project.id, project.progressPercentage)}
+                            className="font-bold text-sky-400 hover:text-sky-300 underline tabular-nums"
+                            title="Modifier le pourcentage"
+                          >
+                            {project.progressPercentage}%
+                          </button>
+                        ) : (
+                          <span className="font-bold text-sky-400 tabular-nums">
+                            {project.progressPercentage}%
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            project.progressPercentage === 100 ? 'bg-emerald-500' : 'bg-sky-500'
+                          }`}
+                          style={{ width: `${project.progressPercentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         )}
 
         {/* =========================================================================
-            TAB 2: COFFRE-FORT DOCUMENTS (PROTECTION IDOR & PRIVACY)
+            ONGLET 2 : DOCUMENTS (AVEC UPLOAD CLIENT & ADMIN)
             ========================================================================= */}
         {activeTab === 'documents' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-white">Coffre-Fort Documentaire Privé</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Stockage hors web root avec contrôle d'accès strict (Zéro accès direct par URL)
-                </p>
-              </div>
-
-              {/* Segmented Controls pour le filtrage interactif */}
-              <div className="flex items-center gap-1 bg-slate-900 p-1 border border-slate-800 rounded">
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              {/* Filtres de catégories */}
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
                 <button
                   onClick={() => setCategoryFilter('all')}
-                  className={`px-3 py-1 text-xs rounded transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1 rounded transition-colors whitespace-nowrap ${
                     categoryFilter === 'all'
                       ? 'bg-slate-800 text-white font-medium'
                       : 'text-slate-400 hover:text-slate-200'
@@ -486,7 +778,7 @@ export const Dashboard: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setCategoryFilter('audit_seo')}
-                  className={`px-3 py-1 text-xs rounded transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1 rounded transition-colors whitespace-nowrap ${
                     categoryFilter === 'audit_seo'
                       ? 'bg-slate-800 text-white font-medium'
                       : 'text-slate-400 hover:text-slate-200'
@@ -496,7 +788,7 @@ export const Dashboard: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setCategoryFilter('audit_rgpd')}
-                  className={`px-3 py-1 text-xs rounded transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1 rounded transition-colors whitespace-nowrap ${
                     categoryFilter === 'audit_rgpd'
                       ? 'bg-slate-800 text-white font-medium'
                       : 'text-slate-400 hover:text-slate-200'
@@ -506,7 +798,7 @@ export const Dashboard: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setCategoryFilter('facture')}
-                  className={`px-3 py-1 text-xs rounded transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1 rounded transition-colors whitespace-nowrap ${
                     categoryFilter === 'facture'
                       ? 'bg-slate-800 text-white font-medium'
                       : 'text-slate-400 hover:text-slate-200'
@@ -516,74 +808,83 @@ export const Dashboard: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setCategoryFilter('livrable')}
-                  className={`px-3 py-1 text-xs rounded transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1 rounded transition-colors whitespace-nowrap ${
                     categoryFilter === 'livrable'
                       ? 'bg-slate-800 text-white font-medium'
                       : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  Livrables
+                  Livrables &amp; Dépôts
                 </button>
               </div>
+
+              <button
+                onClick={() => {
+                  setDocUploadError(null);
+                  setShowUploadDocModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 text-sky-400 hover:text-sky-300 font-medium whitespace-nowrap"
+              >
+                <Upload className="w-3 h-3" />
+                <span>+ Déposer un document</span>
+              </button>
             </div>
 
-            {/* Note informative OWASP sur l'absence de chemin public */}
-            <div className="p-3 bg-slate-900/50 border border-slate-800/80 rounded flex items-center justify-between text-xs text-slate-400">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>
-                  <strong>Protection OWASP active :</strong> Aucun document n'est accessible via une URL statique directe.
-                  Chaque téléchargement transite par <code className="text-slate-300 font-mono">/api/documents/:id/download</code> qui vérifie le tenant du client.
-                </span>
-              </div>
-            </div>
-
-            {/* Tableau haute densité des documents */}
+            {/* Table des documents */}
             <div className="bg-slate-900/60 border border-slate-800 rounded-lg overflow-hidden">
               <table className="w-full text-left text-xs">
-                <thead className="bg-slate-900 border-b border-slate-800 text-slate-400 uppercase text-[11px] font-semibold tracking-wider">
+                <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 text-[11px] uppercase font-semibold">
                   <tr>
-                    <th className="py-3 px-4">Titre du document</th>
+                    <th className="py-3 px-4">Document</th>
+                    {isAdmin && <th className="py-3 px-4">Client</th>}
                     <th className="py-3 px-4">Catégorie</th>
+                    <th className="py-3 px-4">Source</th>
                     <th className="py-3 px-4 text-right">Taille</th>
-                    <th className="py-3 px-4">Date de mise à disposition</th>
+                    <th className="py-3 px-4">Date</th>
                     <th className="py-3 px-4 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-slate-300">
                   {filteredDocuments.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-500">
+                      <td colSpan={isAdmin ? 7 : 6} className="py-8 text-center text-slate-500">
                         Aucun document disponible dans cette catégorie.
                       </td>
                     </tr>
                   ) : (
                     filteredDocuments.map((doc) => (
                       <tr key={doc.id} className="hover:bg-slate-900/40 transition-colors">
-                        <td className="py-3.5 px-4 font-medium text-white flex items-center gap-2">
-                          <FileCheck2 className="w-4 h-4 text-sky-400 shrink-0" />
+                        <td className="py-3 px-4 font-medium text-white flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5 text-sky-400 shrink-0" />
                           <span>{doc.title}</span>
                         </td>
-                        <td className="py-3.5 px-4 text-slate-400">
+                        {isAdmin && (
+                          <td className="py-3 px-4 text-slate-400 truncate max-w-[140px]">
+                            {doc.clientCompany || doc.clientName || doc.clientId}
+                          </td>
+                        )}
+                        <td className="py-3 px-4 text-slate-400">
                           {getCategoryLabel(doc.category)}
                         </td>
-                        <td className="py-3.5 px-4 text-right font-mono tabular-nums text-slate-400">
+                        <td className="py-3 px-4 text-slate-400">
+                          {doc.uploadedBy === 'client' ? (
+                            <span className="text-[11px] text-amber-300">Déposé par le Client</span>
+                          ) : (
+                            <span className="text-[11px] text-slate-400">Agence</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-400">
                           {formatFileSize(doc.fileSize)}
                         </td>
-                        <td className="py-3.5 px-4 text-slate-400">
-                          {new Date(doc.createdAt).toLocaleDateString('fr-FR', {
-                            year: 'numeric',
-                            month: 'long',
-                            day: 'numeric',
-                          })}
+                        <td className="py-3 px-4 text-slate-400">
+                          {new Date(doc.createdAt).toLocaleDateString('fr-FR')}
                         </td>
-                        <td className="py-3.5 px-4 text-right">
+                        <td className="py-3 px-4 text-right">
                           <button
                             onClick={() => handleDownload(doc.id, doc.title)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition-colors"
-                            title="Téléchargement sécurisé vérifié par jeton"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition-colors"
                           >
-                            <Download className="w-3.5 h-3.5 text-sky-400" />
+                            <Download className="w-3 h-3 text-sky-400" />
                             <span>Télécharger</span>
                           </button>
                         </td>
@@ -593,152 +894,140 @@ export const Dashboard: React.FC = () => {
                 </tbody>
               </table>
             </div>
-
-            {/* Zone de test interactif de l'IDOR (Démonstration de sécurité pour l'utilisateur) */}
-            <div className="p-4 bg-slate-900 border border-slate-800 rounded-lg space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-semibold text-white">
-                    Laboratoire de Sécurité : Épreuve du feu IDOR (Insecure Direct Object Reference)
-                  </span>
-                </div>
-                <button
-                  onClick={handleRunIdorTest}
-                  disabled={idorTestResult?.status === 'testing'}
-                  className="px-3 py-1.5 text-xs font-medium bg-amber-950/70 hover:bg-amber-900/80 border border-amber-800 text-amber-200 rounded transition-colors"
-                >
-                  {idorTestResult?.status === 'testing' ? 'Test en cours...' : 'Tester la tentative de piratage IDOR'}
-                </button>
-              </div>
-
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Ce test simule un attaquant qui tente de télécharger l'ID d'un document confidentiel appartenant à un <strong>autre client</strong> (<code className="text-slate-300 font-mono">doc_5</code> appartenant à ACME SAS).
-                Le contrôleur doit impérativement bloquer la requête avec une erreur <code className="text-emerald-400 font-mono">403 Forbidden</code>.
-              </p>
-
-              {idorTestResult && (
-                <div
-                  className={`p-3 rounded text-xs border ${
-                    idorTestResult.status === 'blocked'
-                      ? 'bg-emerald-950/40 border-emerald-900/70 text-emerald-200'
-                      : idorTestResult.status === 'error'
-                      ? 'bg-red-950/40 border-red-900/70 text-red-200'
-                      : 'bg-slate-950 border-slate-800 text-slate-300'
-                  }`}
-                >
-                  {idorTestResult.message}
-                </div>
-              )}
-            </div>
           </div>
         )}
 
         {/* =========================================================================
-            TAB 3: SUPPORT & ASSISTANCE TECHNIQUE
+            ONGLET 3 : SUPPORT & ASSISTANCE (TRAITEMENT ET CLÔTURE)
             ========================================================================= */}
         {activeTab === 'support' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-            {/* Formulaire de création de ticket */}
-            <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 rounded-lg p-6 space-y-4">
-              <div>
-                <h2 className="text-base font-semibold text-white">Créer une demande d'assistance</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Une alerte email immédiate sera transmise à l'administrateur Matt Konnect
-                </p>
-              </div>
-
-              {ticketFeedback && (
-                <div
-                  className={`p-3 rounded text-xs border ${
-                    ticketFeedback.type === 'success'
-                      ? 'bg-emerald-950/40 border-emerald-900/60 text-emerald-200'
-                      : 'bg-red-950/40 border-red-900/60 text-red-200'
-                  }`}
-                >
-                  {ticketFeedback.message}
-                </div>
-              )}
-
-              <form onSubmit={handleTicketSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Si Client : Formulaire de demande */}
+            {!isAdmin && (
+              <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 rounded-lg p-5 space-y-4">
                 <div>
-                  <label htmlFor="ticket-subject" className="block text-xs font-medium text-slate-300 mb-1">
-                    Objet de la demande
-                  </label>
-                  <input
-                    id="ticket-subject"
-                    type="text"
-                    required
-                    value={ticketSubject}
-                    onChange={(e) => setTicketSubject(e.target.value)}
-                    placeholder="Ex: Demande d'ajustement du sitemap XML"
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                  />
+                  <h2 className="text-sm font-semibold text-white">Ouvrir un ticket</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Notre équipe Matt Konnect vous répondra directement sur cet espace.
+                  </p>
                 </div>
 
-                <div>
-                  <label htmlFor="ticket-priority" className="block text-xs font-medium text-slate-300 mb-1">
-                    Niveau de priorité
-                  </label>
-                  <select
-                    id="ticket-priority"
-                    value={ticketPriority}
-                    onChange={(e) => setTicketPriority(e.target.value as 'low' | 'medium' | 'high' | 'urgent')}
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                {ticketSuccessMsg && (
+                  <div className="p-3 rounded text-xs bg-emerald-950/40 border border-emerald-900/60 text-emerald-200 flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>{ticketSuccessMsg}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleCreateTicket} className="space-y-3.5">
+                  <div>
+                    <label htmlFor="user-ticket-subject-input" className="block text-xs font-medium text-slate-300 mb-1">
+                      Objet
+                    </label>
+                    <input
+                      id="user-ticket-subject-input"
+                      type="text"
+                      required
+                      value={ticketSubject}
+                      onChange={(e) => setTicketSubject(e.target.value)}
+                      placeholder="Ex: Demande d'ajustement technique"
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="user-ticket-priority-select" className="block text-xs font-medium text-slate-300 mb-1">
+                      Priorité
+                    </label>
+                    <select
+                      id="user-ticket-priority-select"
+                      value={ticketPriority}
+                      onChange={(e) => setTicketPriority(e.target.value as 'low' | 'medium' | 'high' | 'urgent')}
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="low">Basse (question générale)</option>
+                      <option value="medium">Moyenne (demande standard)</option>
+                      <option value="high">Haute (ajustement spécifique)</option>
+                      <option value="urgent">Urgente (blocage opérationnel)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label htmlFor="user-ticket-message-area" className="block text-xs font-medium text-slate-300 mb-1">
+                      Message
+                    </label>
+                    <textarea
+                      id="user-ticket-message-area"
+                      required
+                      rows={4}
+                      value={ticketMessage}
+                      onChange={(e) => setTicketMessage(e.target.value)}
+                      placeholder="Décrivez votre demande avec précision..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isSubmittingTicket || !ticketSubject.trim() || !ticketMessage.trim()}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded bg-white hover:bg-slate-200 text-slate-950 font-semibold text-xs transition-colors disabled:opacity-50"
                   >
-                    <option value="low">Basse (question générale / conseil)</option>
-                    <option value="medium">Moyenne (demande standard)</option>
-                    <option value="high">Haute (anomalie détectée)</option>
-                    <option value="urgent">Urgente (blocage production)</option>
-                  </select>
-                </div>
+                    {isSubmittingTicket ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5" />
+                    )}
+                    <span>Envoyer la demande</span>
+                  </button>
+                </form>
+              </div>
+            )}
 
+            {/* Liste des tickets (Client ou Admin) */}
+            <div className={isAdmin ? 'lg:col-span-12 space-y-4' : 'lg:col-span-7 space-y-4'}>
+              <div className="flex items-center justify-between text-xs">
                 <div>
-                  <label htmlFor="ticket-message" className="block text-xs font-medium text-slate-300 mb-1">
-                    Détail de votre message
-                  </label>
-                  <textarea
-                    id="ticket-message"
-                    required
-                    rows={4}
-                    value={ticketMessage}
-                    onChange={(e) => setTicketMessage(e.target.value)}
-                    placeholder="Décrivez votre besoin avec précision..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                  />
+                  <h2 className="text-sm font-semibold text-white">
+                    {isAdmin ? 'Tickets Clients' : 'Historique des échanges'}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {isAdmin
+                      ? 'Répondez directement au client et clôturez le ticket si terminé'
+                      : 'Consultez les réponses apportées par l\'équipe My Konnect'}
+                  </p>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={isSubmittingTicket || !ticketSubject.trim() || !ticketMessage.trim()}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-4 rounded bg-white hover:bg-slate-200 text-slate-950 font-semibold text-xs transition-colors disabled:opacity-50"
-                >
-                  {isSubmittingTicket ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Send className="w-3.5 h-3.5" />
-                  )}
-                  <span>Envoyer ma demande au support</span>
-                </button>
-              </form>
-            </div>
-
-            {/* Historique des tickets */}
-            <div className="lg:col-span-7 space-y-4">
-              <div>
-                <h2 className="text-base font-semibold text-white">Historique de vos échanges</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Vos demandes d'assistance et les réponses de l'équipe Matt Konnect
-                </p>
+                {isAdmin && (
+                  <div className="flex items-center gap-1 bg-slate-900 p-1 border border-slate-800 rounded">
+                    <button
+                      onClick={() => setTicketFilter('all')}
+                      className={`px-2.5 py-0.5 rounded ${ticketFilter === 'all' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
+                    >
+                      Tous
+                    </button>
+                    <button
+                      onClick={() => setTicketFilter('open')}
+                      className={`px-2.5 py-0.5 rounded ${ticketFilter === 'open' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
+                    >
+                      En attente
+                    </button>
+                    <button
+                      onClick={() => setTicketFilter('resolved')}
+                      className={`px-2.5 py-0.5 rounded ${ticketFilter === 'resolved' ? 'bg-slate-800 text-white font-medium' : 'text-slate-400'}`}
+                    >
+                      Clôturés
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-3">
-                {tickets.length === 0 ? (
+                {filteredTickets.length === 0 ? (
                   <div className="p-8 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded bg-slate-900/30">
-                    Vous n'avez aucun ticket de support ouvert actuellement.
+                    Aucun ticket pour le moment.
                   </div>
                 ) : (
-                  tickets.map((ticket) => (
+                  filteredTickets.map((ticket) => (
                     <div
                       key={ticket.id}
                       className="bg-slate-900/60 border border-slate-800 rounded-lg p-4 space-y-3"
@@ -746,9 +1035,15 @@ export const Dashboard: React.FC = () => {
                       <div className="flex items-center justify-between text-xs">
                         <div className="flex items-center gap-2">
                           <span className="font-mono text-slate-400">{ticket.id}</span>
-                          <span aria-hidden="true" className="text-slate-600">·</span>
+                          {isAdmin && ticket.clientCompany && (
+                            <>
+                              <span className="text-slate-600">·</span>
+                              <span className="text-white font-medium">{ticket.clientCompany} ({ticket.clientName})</span>
+                            </>
+                          )}
+                          <span className="text-slate-600">·</span>
                           <span
-                            className={`capitalize font-medium ${
+                            className={`font-medium capitalize ${
                               ticket.priority === 'urgent'
                                 ? 'text-red-400'
                                 : ticket.priority === 'high'
@@ -759,16 +1054,17 @@ export const Dashboard: React.FC = () => {
                             Priorité {ticket.priority}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 text-slate-400">
+
+                        <div className="flex items-center gap-2 text-slate-400">
                           <Clock className="w-3 h-3" />
                           <span>{new Date(ticket.createdAt).toLocaleDateString('fr-FR')}</span>
-                          <span aria-hidden="true" className="text-slate-600">·</span>
+                          <span className="text-slate-600">·</span>
                           <span
                             className={`font-semibold ${
                               ticket.status === 'resolved' ? 'text-emerald-400' : 'text-sky-400'
                             }`}
                           >
-                            {ticket.status === 'resolved' ? 'Résolu' : 'En traitement'}
+                            {ticket.status === 'resolved' ? 'Clôturé' : 'En attente'}
                           </span>
                         </div>
                       </div>
@@ -777,14 +1073,85 @@ export const Dashboard: React.FC = () => {
                         {ticket.subject}
                       </h3>
 
-                      <p className="text-xs text-slate-300 bg-slate-950/70 p-3 rounded border border-slate-900 whitespace-pre-wrap">
+                      <p className="text-xs text-slate-300 bg-slate-950/70 p-3 rounded border border-slate-900 whitespace-pre-wrap leading-relaxed">
                         {ticket.message}
                       </p>
 
+                      {/* Réponse enregistrée */}
                       {ticket.adminReply && (
                         <div className="border-l-2 border-sky-500 pl-3 py-1 bg-sky-950/20 rounded-r text-xs space-y-1">
-                          <div className="font-semibold text-sky-300">Réponse Matt Konnect Support :</div>
-                          <div className="text-slate-300">{ticket.adminReply}</div>
+                          <div className="font-semibold text-sky-300 flex items-center justify-between">
+                            <span>Réponse de l'équipe Matt Konnect :</span>
+                            {ticket.repliedAt && (
+                              <span className="text-[10px] text-slate-500 font-normal">
+                                {new Date(ticket.repliedAt).toLocaleDateString('fr-FR')}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-slate-300 leading-relaxed">{ticket.adminReply}</div>
+                        </div>
+                      )}
+
+                      {/* Action Admin pour répondre et clôturer si terminé */}
+                      {isAdmin && (
+                        <div className="pt-2 border-t border-slate-800/80">
+                          {replyTicketId === ticket.id ? (
+                            <div className="space-y-3 pt-1">
+                              <label htmlFor={`ticket-reply-text-${ticket.id}`} className="block text-xs font-medium text-slate-300">
+                                Répondre au client
+                              </label>
+                              <textarea
+                                id={`ticket-reply-text-${ticket.id}`}
+                                rows={3}
+                                value={adminReplyText}
+                                onChange={(e) => setAdminReplyText(e.target.value)}
+                                placeholder="Rédigez la réponse d'assistance..."
+                                className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-xs text-white focus:outline-none focus:border-sky-500"
+                              />
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReplyTicketId(null);
+                                    setAdminReplyText('');
+                                  }}
+                                  className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
+                                >
+                                  Annuler
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSubmittingReply || !adminReplyText.trim()}
+                                  onClick={() => handleAdminReply(ticket.id, 'open')}
+                                  className="px-3 py-1.5 text-xs font-medium bg-slate-800 hover:bg-slate-700 text-white rounded border border-slate-700 transition-colors disabled:opacity-50"
+                                >
+                                  Envoyer (Laisser ouvert)
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSubmittingReply || !adminReplyText.trim()}
+                                  onClick={() => handleAdminReply(ticket.id, 'resolved')}
+                                  className="px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white rounded transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>Envoyer et Clôturer le ticket</span>
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-between">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReplyTicketId(ticket.id);
+                                  setAdminReplyText(ticket.adminReply || '');
+                                }}
+                                className="text-xs text-sky-400 hover:underline flex items-center gap-1"
+                              >
+                                <span>{ticket.adminReply ? 'Modifier la réponse' : 'Répondre au ticket'}</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -796,244 +1163,514 @@ export const Dashboard: React.FC = () => {
         )}
 
         {/* =========================================================================
-            TAB 4: DÉPLOIEMENT O2SWITCH & SÉCURITÉ OWASP (GUIDE PRODUCTION)
+            ONGLET 4 : CLIENTS (RÉSERVÉ ADMIN - CRÉATION EXCLUSIVE)
             ========================================================================= */}
-        {activeTab === 'deployment' && (
-          <div className="space-y-8">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Guide de Déploiement o2switch (Phusion Passenger + MariaDB)</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Instructions exactes pour mettre en ligne l'extranet Konnect sur votre hébergement mutualisé cPanel o2switch
-              </p>
+        {isAdmin && activeTab === 'clients' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs text-slate-400">
+              <span>{clientsList.length} compte{clientsList.length > 1 ? 's' : ''} enregistré{clientsList.length > 1 ? 's' : ''}</span>
+              <button
+                onClick={() => {
+                  setClientCreationError(null);
+                  setShowCreateClientModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 bg-white hover:bg-slate-200 text-slate-950 font-semibold rounded text-xs transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Créer un nouveau client</span>
+              </button>
             </div>
 
-            {/* Grille 3 étapes de production */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-5 space-y-3">
-                <div className="text-xs font-mono text-sky-400">ÉTAPE 1</div>
-                <h3 className="text-sm font-bold text-white">cPanel : Configuration Node.js</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Dans votre interface cPanel o2switch, ouvrez <strong>"Configurer une application Node.js"</strong> (Phusion Passenger) :
-                </p>
-                <ul className="text-xs text-slate-400 space-y-1 list-disc list-inside">
-                  <li>Version Node.js : <strong>20.x</strong> ou ultérieure</li>
-                  <li>Mode d'application : <strong>Production</strong></li>
-                  <li>Application root : <code className="text-slate-300 font-mono">/home/user/konnect_portal</code></li>
-                  <li>Fichier de démarrage : <code className="text-slate-300 font-mono">server.ts</code> ou <code className="text-slate-300 font-mono">server.js</code></li>
-                  <li>URL d'application : votre sous-domaine ou URI dédiée</li>
-                </ul>
-              </div>
-
-              <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-5 space-y-3">
-                <div className="text-xs font-mono text-sky-400">ÉTAPE 2</div>
-                <h3 className="text-sm font-bold text-white">Stockage Privé Hors public_html</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Pour respecter le principe OWASP de non-divulgation, créez un répertoire strictement en dehors de la racine web :
-                </p>
-                <div className="p-2.5 bg-slate-950 font-mono text-[11px] text-sky-300 rounded border border-slate-800 break-all">
-                  mkdir -p /home/user/private_uploads<br />
-                  chmod 700 /home/user/private_uploads
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  LiteSpeed refusera tout accès direct par URL. Seule l'API Express pourra streamer les fichiers.
-                </p>
-              </div>
-
-              <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-5 space-y-3">
-                <div className="text-xs font-mono text-sky-400">ÉTAPE 3</div>
-                <h3 className="text-sm font-bold text-white">Build Frontend &amp; .htaccess</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Générez le build statique Vite et placez les fichiers dans votre sous-domaine :
-                </p>
-                <div className="p-2.5 bg-slate-950 font-mono text-[11px] text-emerald-300 rounded border border-slate-800">
-                  npm run build<br />
-                  cp -r dist/* public_html/portail/
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  Le fichier <code className="text-slate-400 font-mono">.htaccess</code> redirige les routes vers <code className="text-slate-400 font-mono">index.html</code>.
-                </p>
-              </div>
-            </div>
-
-            {/* Script SQL DDL MariaDB exportable */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white">Script DDL MariaDB / MySQL o2switch</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    À exécuter dans phpMyAdmin ou en ligne de commande MySQL sur o2switch
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    copyToClipboard(
-                      `CREATE TABLE IF NOT EXISTS \`clients\` (
-  \`id\` VARCHAR(36) NOT NULL,
-  \`name\` VARCHAR(255) NOT NULL,
-  \`company_name\` VARCHAR(255) NOT NULL,
-  \`email\` VARCHAR(255) NOT NULL,
-  \`status\` ENUM('active', 'suspended', 'pending') NOT NULL DEFAULT 'active',
-  \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (\`id\`),
-  UNIQUE KEY \`uniq_client_email\` (\`email\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS \`projects\` (
-  \`id\` VARCHAR(36) NOT NULL,
-  \`client_id\` VARCHAR(36) NOT NULL,
-  \`title\` VARCHAR(255) NOT NULL,
-  \`description\` TEXT NOT NULL,
-  \`status\` ENUM('in_progress', 'completed', 'on_hold') NOT NULL DEFAULT 'in_progress',
-  \`progress_percentage\` INT NOT NULL DEFAULT 0,
-  \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (\`id\`),
-  KEY \`idx_projects_client\` (\`client_id\`),
-  CONSTRAINT \`fk_projects_client\` FOREIGN KEY (\`client_id\`) REFERENCES \`clients\` (\`id\`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS \`documents\` (
-  \`id\` VARCHAR(36) NOT NULL,
-  \`client_id\` VARCHAR(36) NOT NULL,
-  \`title\` VARCHAR(255) NOT NULL,
-  \`category\` ENUM('audit_seo', 'audit_rgpd', 'facture', 'livrable') NOT NULL,
-  \`file_path\` VARCHAR(512) NOT NULL,
-  \`file_size\` INT NOT NULL,
-  \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (\`id\`),
-  KEY \`idx_documents_client\` (\`client_id\`),
-  CONSTRAINT \`fk_documents_client\` FOREIGN KEY (\`client_id\`) REFERENCES \`clients\` (\`id\`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS \`magic_links\` (
-  \`id\` VARCHAR(36) NOT NULL,
-  \`client_id\` VARCHAR(36) NOT NULL,
-  \`token_hash\` VARCHAR(64) NOT NULL,
-  \`expires_at\` DATETIME NOT NULL,
-  \`used\` TINYINT(1) NOT NULL DEFAULT 0,
-  \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (\`id\`),
-  UNIQUE KEY \`uniq_magic_token_hash\` (\`token_hash\`),
-  KEY \`idx_magic_client\` (\`client_id\`),
-  CONSTRAINT \`fk_magic_client\` FOREIGN KEY (\`client_id\`) REFERENCES \`clients\` (\`id\`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS \`support_tickets\` (
-  \`id\` VARCHAR(36) NOT NULL,
-  \`client_id\` VARCHAR(36) NOT NULL,
-  \`subject\` VARCHAR(255) NOT NULL,
-  \`message\` TEXT NOT NULL,
-  \`priority\` ENUM('low', 'medium', 'high', 'urgent') NOT NULL DEFAULT 'medium',
-  \`status\` ENUM('open', 'resolved') NOT NULL DEFAULT 'open',
-  \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (\`id\`),
-  KEY \`idx_tickets_client\` (\`client_id\`),
-  CONSTRAINT \`fk_tickets_client\` FOREIGN KEY (\`client_id\`) REFERENCES \`clients\` (\`id\`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
-                      'sql_script'
-                    )
-                  }
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded transition-colors"
-                >
-                  {copiedKey === 'sql_script' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Copié dans le presse-papier</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Copier le script SQL DDL</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded font-mono text-[11px] text-slate-300 overflow-x-auto max-h-60 border border-slate-800">
-                <pre>{`-- Tables MariaDB / MySQL avec collation UTF-8 et clés étrangères CASCADE
-CREATE TABLE IF NOT EXISTS \`clients\` ( ... );
-CREATE TABLE IF NOT EXISTS \`projects\` ( ... );
-CREATE TABLE IF NOT EXISTS \`documents\` ( ... );
-CREATE TABLE IF NOT EXISTS \`magic_links\` ( ... token_hash VARCHAR(64) ... );
-CREATE TABLE IF NOT EXISTS \`support_tickets\` ( ... );`}</pre>
-              </div>
-            </div>
-
-            {/* Configuration .htaccess */}
-            <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-white">Fichier .htaccess LiteSpeed / Apache</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    À déposer dans <code className="text-slate-300 font-mono">public_html/</code> pour le routage SPA et les en-têtes HTTP
-                  </p>
-                </div>
-                <button
-                  onClick={() =>
-                    copyToClipboard(
-                      `Options -Indexes -MultiViews
-
-<FilesMatch "^\\.(env|git|htaccess|htpasswd|ini|log|sh|sql)">
-    Require all denied
-</FilesMatch>
-
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    RewriteBase /
-    RewriteCond %{REQUEST_FILENAME} -f [OR]
-    RewriteCond %{REQUEST_FILENAME} -d
-    RewriteRule ^ - [L]
-    RewriteRule ^ index.html [L]
-</IfModule>
-
-<IfModule mod_headers.c>
-    Header set X-Content-Type-Options "nosniff"
-    Header set X-Frame-Options "SAMEORIGIN"
-    Header set X-XSS-Protection "1; mode=block"
-    Header set Referrer-Policy "strict-origin-when-cross-origin"
-</IfModule>`,
-                      'htaccess'
-                    )
-                  }
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 rounded transition-colors"
-                >
-                  {copiedKey === 'htaccess' ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Copié</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Copier le .htaccess</span>
-                    </>
-                  )}
-                </button>
-              </div>
-
-              <div className="bg-slate-950 p-4 rounded font-mono text-[11px] text-slate-300 overflow-x-auto border border-slate-800">
-                <pre>{`Options -Indexes -MultiViews
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^ index.html [L]`}</pre>
-              </div>
+            <div className="bg-slate-900/60 border border-slate-800 rounded-lg overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900/90 border-b border-slate-800 text-slate-400 text-[11px] uppercase font-semibold">
+                  <tr>
+                    <th className="py-3 px-4">Contact</th>
+                    <th className="py-3 px-4">Entreprise</th>
+                    <th className="py-3 px-4">Identifiant / Email</th>
+                    <th className="py-3 px-4">1ère Connexion</th>
+                    <th className="py-3 px-4">Statut</th>
+                    <th className="py-3 px-4">Création</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                  {clientsList.map((client) => (
+                    <tr key={client.id} className="hover:bg-slate-900/40 transition-colors">
+                      <td className="py-3 px-4 font-medium text-white flex items-center gap-1.5">
+                        <span>{client.name}</span>
+                        {client.role === 'admin' && (
+                          <span className="text-[10px] text-sky-400 font-mono bg-sky-950 px-1 rounded">Admin</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-slate-400">{client.companyName}</td>
+                      <td className="py-3 px-4 font-mono text-slate-400">{client.email}</td>
+                      <td className="py-3 px-4">
+                        {client.mustChangePassword ? (
+                          <span className="text-amber-300 text-[11px] font-medium">Mot de passe à changer</span>
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">Défini</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-emerald-400 font-medium capitalize">
+                          {client.status}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-slate-400">
+                        {new Date(client.createdAt).toLocaleDateString('fr-FR')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
       </main>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950 px-6 py-4 mt-12">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-4">
+      {/* =========================================================================
+          MODAL 1 : CRÉATION D'UN COMPTE CLIENT (EXCLUSIF ADMIN)
+          ========================================================================= */}
+      {showCreateClientModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                <Users className="w-4 h-4 text-sky-400" />
+                <span>Créer un nouveau compte Client</span>
+              </div>
+              <button
+                onClick={() => setShowCreateClientModal(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Seul l'administrateur peut créer le compte d'un client. Le client devra obligatoirement personnaliser son mot de passe lors de sa première connexion.
+            </p>
+
+            {clientCreationError && (
+              <div className="p-2.5 rounded text-xs bg-red-950/40 border border-red-900/60 text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{clientCreationError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateClientSubmit} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Nom et Prénom du contact</label>
+                <input
+                  type="text"
+                  required
+                  value={newClientName}
+                  onChange={(e) => setNewClientName(e.target.value)}
+                  placeholder="Ex: Jean Dupont"
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Raison sociale / Entreprise</label>
+                <input
+                  type="text"
+                  required
+                  value={newClientCompany}
+                  onChange={(e) => setNewClientCompany(e.target.value)}
+                  placeholder="Ex: Dupont Industrie SAS"
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Adresse email (Identifiant de connexion)</label>
+                <input
+                  type="email"
+                  required
+                  value={newClientEmail}
+                  onChange={(e) => setNewClientEmail(e.target.value)}
+                  placeholder="contact@dupont.fr"
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Mot de passe temporaire initial</label>
+                <input
+                  type="text"
+                  required
+                  value={newClientInitialPassword}
+                  onChange={(e) => setNewClientInitialPassword(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white font-mono focus:outline-none focus:border-sky-500"
+                />
+                <span className="text-[10px] text-slate-500 mt-0.5 block">
+                  À transmettre au client pour son premier accès.
+                </span>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateClientModal(false)}
+                  className="px-3 py-1.5 text-slate-400 hover:text-white"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingClient}
+                  className="px-4 py-2 font-semibold bg-white hover:bg-slate-200 text-slate-950 rounded transition-colors disabled:opacity-50"
+                >
+                  {isCreatingClient ? 'Création en cours...' : 'Créer le compte'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 2 : CRÉATION D'UN PROJET (EXCLUSIF ADMIN)
+          ========================================================================= */}
+      {showCreateProjectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                <FolderKanban className="w-4 h-4 text-sky-400" />
+                <span>Nouveau Projet Client</span>
+              </div>
+              <button
+                onClick={() => setShowCreateProjectModal(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {projectCreationError && (
+              <div className="p-2.5 rounded text-xs bg-red-950/40 border border-red-900/60 text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{projectCreationError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateProjectSubmit} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Client bénéficiaire</label>
+                <select
+                  required
+                  value={newProjectClientId}
+                  onChange={(e) => setNewProjectClientId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                >
+                  {clientsList
+                    .filter((c) => c.role === 'client')
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.companyName} — {c.name} ({c.email})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Titre du projet</label>
+                <input
+                  type="text"
+                  required
+                  value={newProjectTitle}
+                  onChange={(e) => setNewProjectTitle(e.target.value)}
+                  placeholder="Ex: Stratégie SEO & Refonte Web"
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Description des travaux</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={newProjectDescription}
+                  onChange={(e) => setNewProjectDescription(e.target.value)}
+                  placeholder="Objectifs, périmètre d'intervention..."
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Avancement (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={newProjectProgress}
+                    onChange={(e) => setNewProjectProgress(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white tabular-nums focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Statut</label>
+                  <select
+                    value={newProjectStatus}
+                    onChange={(e) => setNewProjectStatus(e.target.value as Project['status'])}
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                  >
+                    <option value="in_progress">En cours</option>
+                    <option value="completed">Terminé</option>
+                    <option value="on_hold">En pause</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateProjectModal(false)}
+                  className="px-3 py-1.5 text-slate-400 hover:text-white"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isCreatingProject}
+                  className="px-4 py-2 font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded transition-colors disabled:opacity-50"
+                >
+                  {isCreatingProject ? 'Création...' : 'Créer le projet'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 3 : DÉPÔT D'UN DOCUMENT (ACCESSIBLE CLIENT ET ADMIN)
+          ========================================================================= */}
+      {showUploadDocModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                <FileUp className="w-4 h-4 text-sky-400" />
+                <span>Déposer un document dans le coffre-fort</span>
+              </div>
+              <button
+                onClick={() => setShowUploadDocModal(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              {isAdmin
+                ? 'Le document sera stocké de manière sécurisée hors de la racine web et mis à disposition du client sélectionné.'
+                : 'Déposez vos pièces justificatives, cahier des charges ou contrats pour l\'équipe Matt Konnect.'}
+            </p>
+
+            {docUploadError && (
+              <div className="p-2.5 rounded text-xs bg-red-950/40 border border-red-900/60 text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{docUploadError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUploadSubmit} className="space-y-3 text-xs">
+              {/* Si Admin : sélection du client destinataire */}
+              {isAdmin && (
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Client destinataire</label>
+                  <select
+                    required
+                    value={docTargetClientId}
+                    onChange={(e) => setDocTargetClientId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                  >
+                    {clientsList
+                      .filter((c) => c.role === 'client')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.companyName} — {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Titre descriptif du document</label>
+                <input
+                  type="text"
+                  required
+                  value={docTitle}
+                  onChange={(e) => setDocTitle(e.target.value)}
+                  placeholder="Ex: Audit Sémantique ou Kbis 2026"
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Catégorie</label>
+                <select
+                  value={docCategory}
+                  onChange={(e) => setDocCategory(e.target.value as DocumentCategory)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                >
+                  <option value="livrable">Livrable de projet</option>
+                  <option value="audit_seo">Audit SEO Technique</option>
+                  <option value="audit_rgpd">Conformité RGPD</option>
+                  <option value="facture">Facture &amp; Comptabilité</option>
+                  <option value="autre">Autre document partagé</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Fichier (PDF, Docx, Image, Zip)</label>
+                <input
+                  type="file"
+                  required
+                  ref={fileInputRef}
+                  onChange={handleFileChange}
+                  className="w-full text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-slate-800 file:text-white hover:file:bg-slate-700 cursor-pointer"
+                />
+                {selectedFile && (
+                  <span className="text-[11px] text-sky-400 mt-1 block">
+                    Fichier prêt : {selectedFile.name}
+                  </span>
+                )}
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadDocModal(false)}
+                  className="px-3 py-1.5 text-slate-400 hover:text-white"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUploadingDoc || !selectedFile || !docTitle.trim()}
+                  className="px-4 py-2 font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {isUploadingDoc ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <span>Chiffrement &amp; Dépôt...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-3 h-3" />
+                      <span>Déposer le document</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL OBLIGATOIRE : PREMIÈRE CONNEXION DU CLIENT (CHANGEMENT DE MDP)
+          ========================================================================= */}
+      {user?.mustChangePassword && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-lg max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2 text-white font-bold text-base border-b border-slate-800 pb-3">
+              <KeyRound className="w-5 h-5 text-amber-400" />
+              <span>Sécurisation de votre compte My Konnect</span>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed">
+              Bonjour <strong>{user.name}</strong>, votre compte a été créé par l'administrateur avec un mot de passe temporaire.
+              Pour garantir la sécurité de vos données, veuillez <strong>définir votre mot de passe personnel</strong> dès maintenant.
+            </p>
+
+            {passwordChangeError && (
+              <div className="p-2.5 rounded text-xs bg-red-950/50 border border-red-900/70 text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{passwordChangeError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleFirstPasswordSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-medium text-slate-200 mb-1">Nouveau mot de passe personnel</label>
+                <div className="relative">
+                  <input
+                    type={showPwdText ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    value={newPasswordValue}
+                    onChange={(e) => setNewPasswordValue(e.target.value)}
+                    placeholder="Au moins 6 caractères"
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 pr-9 text-white focus:outline-none focus:border-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPwdText(!showPwdText)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                    tabIndex={-1}
+                  >
+                    {showPwdText ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-200 mb-1">Confirmer le nouveau mot de passe</label>
+                <input
+                  type={showPwdText ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  value={confirmPasswordValue}
+                  onChange={(e) => setConfirmPasswordValue(e.target.value)}
+                  placeholder="Répétez votre mot de passe"
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isChangingPassword || !newPasswordValue}
+                className="w-full py-2.5 px-4 font-semibold bg-white hover:bg-slate-200 text-slate-950 rounded transition-colors disabled:opacity-50 mt-2 flex items-center justify-center gap-2"
+              >
+                {isChangingPassword ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Enregistrement sécurisé...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Valider mon mot de passe personnel</span>
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          FOOTER MINIMALISTE & SOBRE
+          ========================================================================= */}
+      <footer className="border-t border-slate-900 bg-slate-950 px-6 py-4 mt-8">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-3">
           <div>
-            &copy; {new Date().getFullYear()} Matt Konnect · Konnect Client Portal v2.0
+            &copy; {new Date().getFullYear()} My Konnect · Développé par <a href="https://mattkonnect.com" target="_blank" rel="noopener noreferrer" className="text-slate-400 hover:text-white underline">mattkonnect.com</a>
           </div>
           <div className="flex items-center gap-4">
-            <span>Protection IDOR Active</span>
+            <span>Confidentialité</span>
             <span>·</span>
-            <span>Cookie HTTP-Only &amp; SameSite=Strict</span>
+            <span>Sécurité OWASP</span>
             <span>·</span>
-            <span>o2switch Cloud France</span>
+            <span>Support</span>
           </div>
         </div>
       </footer>

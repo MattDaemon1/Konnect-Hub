@@ -1,9 +1,9 @@
 /**
  * @file ticketController.ts
- * @description Contrôleur de gestion des tickets de support client Matt Konnect
+ * @description Contrôleur de gestion des tickets de support client My Konnect
  * - Validation stricte des entrées utilisateurs via Zod (anti-XSS et injection)
- * - Notification email immédiate à l'administrateur système / chef de projet
- * - Isolation multi-tenant des tickets
+ * - Notification email immédiate à l'administrateur
+ * - Support des rôles Client (ses tickets) et Administrateur (tous les tickets + réponses)
  */
 
 import { Response } from 'express';
@@ -27,9 +27,18 @@ const createTicketSchema = z.object({
   priority: z.enum(['low', 'medium', 'high', 'urgent'] as const),
 });
 
+const replyTicketSchema = z.object({
+  reply: z
+    .string()
+    .trim()
+    .min(3, { message: 'La réponse doit comporter au moins 3 caractères' })
+    .max(3000, { message: 'La réponse est trop longue' }),
+  status: z.enum(['open', 'resolved']).optional(),
+});
+
 /**
  * GET /api/support
- * Renvoie la liste des tickets soumis par le client connecté
+ * Renvoie la liste des tickets (du client connecté, ou de tous les clients si admin)
  */
 export async function handleListTickets(req: AuthenticatedRequest, res: Response): Promise<void> {
   if (!req.user) {
@@ -37,7 +46,10 @@ export async function handleListTickets(req: AuthenticatedRequest, res: Response
     return;
   }
 
-  const tickets = db.getTicketsByClientId(req.user.id);
+  const tickets = req.user.role === 'admin'
+    ? db.getAllTickets()
+    : db.getTicketsByClientId(req.user.id);
+
   res.status(200).json({ tickets });
 }
 
@@ -69,15 +81,15 @@ export async function handleCreateTicket(req: AuthenticatedRequest, res: Respons
     priority,
   });
 
-  // Expédition d'une alerte email à l'administrateur Matt Konnect
-  const adminEmail = process.env.ADMIN_ALERT_EMAIL || 'contact@mattkonnect.fr';
-  const emailSubject = `[Extranet Support] [${priority.toUpperCase()}] Nouveau ticket : ${subject}`;
-  const emailText = `Nouveau ticket support reçu sur Konnect Client Portal :\n\nClient : ${req.user.name} (${req.user.companyName})\nEmail : ${req.user.email}\nPriorité : ${priority}\n\nObjet : ${subject}\n\nMessage :\n${message}\n\nIdentifiant Ticket : ${newTicket.id}`;
+  // Expédition d'une alerte email à l'administrateur My Konnect
+  const adminEmail = process.env.ADMIN_ALERT_EMAIL || 'admin@mykonnect.fr';
+  const emailSubject = `[My Konnect Support] [${priority.toUpperCase()}] Nouveau ticket : ${subject}`;
+  const emailText = `Nouveau ticket support reçu sur My Konnect :\n\nClient : ${req.user.name} (${req.user.companyName})\nEmail : ${req.user.email}\nPriorité : ${priority}\n\nObjet : ${subject}\n\nMessage :\n${message}\n\nIdentifiant Ticket : ${newTicket.id}`;
   const emailHtml = `<!DOCTYPE html>
 <html>
 <body style="font-family: Arial, sans-serif; padding: 20px; color: #1e293b;">
   <div style="max-width: 600px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 24px;">
-    <h3 style="color: #0f172a; margin-top: 0;">Nouveau ticket support client</h3>
+    <h3 style="color: #0f172a; margin-top: 0;">Nouveau ticket support client My Konnect</h3>
     <p><strong>Client :</strong> ${req.user.name} &bull; ${req.user.companyName}</p>
     <p><strong>Email :</strong> ${req.user.email}</p>
     <p><strong>Priorité :</strong> <span style="font-weight: bold; color: ${priority === 'urgent' ? '#dc2626' : priority === 'high' ? '#d97706' : '#2563eb'};">${priority.toUpperCase()}</span></p>
@@ -99,7 +111,41 @@ export async function handleCreateTicket(req: AuthenticatedRequest, res: Respons
 
   res.status(201).json({
     success: true,
-    message: 'Votre ticket de support a été enregistré avec succès. Un responsable Matt Konnect va vous répondre dans les plus brefs délais.',
+    message: 'Votre ticket de support a été enregistré avec succès. Un responsable My Konnect va vous répondre dans les plus brefs délais.',
     ticket: newTicket,
+  });
+}
+
+/**
+ * POST /api/support/:id/reply
+ * Répondre à un ticket client (Réservé à l'administrateur)
+ */
+export async function handleReplyTicket(req: AuthenticatedRequest, res: Response): Promise<void> {
+  if (!req.user || req.user.role !== 'admin') {
+    res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
+    return;
+  }
+
+  const { id } = req.params;
+  const parseResult = replyTicketSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    res.status(400).json({
+      error: parseResult.error.issues?.[0]?.message || 'Données invalides',
+    });
+    return;
+  }
+
+  const { reply, status } = parseResult.data;
+  const updatedTicket = db.replyToTicket(id, reply, status || 'resolved');
+
+  if (!updatedTicket) {
+    res.status(404).json({ error: 'Ticket introuvable' });
+    return;
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Réponse enregistrée avec succès.',
+    ticket: updatedTicket,
   });
 }

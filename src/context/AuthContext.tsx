@@ -1,14 +1,17 @@
 /**
  * @file AuthContext.tsx
- * @description Contexte d'authentification React sécurisé sans stockage en localStorage
- * Toutes les sessions reposent sur le cookie HTTP-Only géré par le navigateur.
+ * @description Contexte d'authentification pour My Konnect
+ * Gère la double méthode de connexion (Identifiant/Mot de passe et Magic Link),
+ * les rôles Client et Administrateur, et la session sécurisée par cookie HTTP-Only.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { SessionUser, AuthState } from '../types/index.ts';
+import { SessionUser, AuthState, UserRole } from '../types/index.ts';
 
 interface AuthContextType extends AuthState {
-  requestMagicLink: (email: string) => Promise<{ success: boolean; message: string; previewUrl?: string; simulated?: boolean }>;
+  loginWithPassword: (email: string, password: string, expectedRole?: UserRole) => Promise<boolean>;
+  changePassword: (newPassword: string) => Promise<boolean>;
+  requestMagicLink: (email: string, role?: UserRole) => Promise<{ success: boolean; message: string; previewUrl?: string; simulated?: boolean }>;
   verifyToken: (token: string) => Promise<boolean>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -52,8 +55,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, [refreshUser]);
 
+  // Connexion classique par Identifiant (email) et Mot de passe
+  const loginWithPassword = async (email: string, password: string, expectedRole?: UserRole): Promise<boolean> => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ email, password, expectedRole }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errMsg = data.error || 'Identifiant ou mot de passe incorrect.';
+        setError(errMsg);
+        setUser(null);
+        return false;
+      }
+
+      setUser(data.user);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erreur de connexion au serveur.';
+      setError(msg);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Demander un Magic Link
-  const requestMagicLink = async (email: string) => {
+  const requestMagicLink = async (email: string, role?: UserRole) => {
     setError(null);
     try {
       const res = await fetch('/api/auth/magic-link', {
@@ -62,7 +100,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, role }),
         credentials: 'include',
       });
 
@@ -107,11 +145,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setUser(data.user);
       return true;
-    } catch (err) {
+    } catch {
       setError('Erreur réseau lors de la vérification du lien.');
       return false;
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Changement de mot de passe (notamment lors de la 1ère connexion)
+  const changePassword = async (newPassword: string): Promise<boolean> => {
+    setError(null);
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ newPassword }),
+        credentials: 'include',
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Erreur lors du changement de mot de passe');
+        return false;
+      }
+
+      if (data.user) {
+        setUser(data.user);
+      }
+      return true;
+    } catch {
+      setError('Erreur réseau lors du changement de mot de passe');
+      return false;
     }
   };
 
@@ -136,6 +204,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: Boolean(user),
         isLoading,
         error,
+        loginWithPassword,
+        changePassword,
         requestMagicLink,
         verifyToken,
         logout,

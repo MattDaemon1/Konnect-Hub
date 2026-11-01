@@ -1,6 +1,6 @@
-# 🔐 Konnect Client Portal — Extranet Client Sécurisé (OWASP & RGPD)
+# 🔐 My Konnect — Portail Client & Administration (OWASP & RGPD)
 
-> Extranet client TPE/PME 100 % sécurisé pour l'écosystème **Matt Konnect**, conçu pour fonctionner en environnement de développement local et prêt pour un déploiement en production sur un serveur mutualisé **o2switch** (cPanel / Phusion Passenger / LiteSpeed / MariaDB).
+> Extranet client & portail d'administration pour l'écosystème **My Konnect**, conçu pour fonctionner en environnement de développement local et prêt pour un déploiement en production sur un serveur mutualisé **o2switch** (cPanel / Phusion Passenger / LiteSpeed / MariaDB).
 
 ---
 
@@ -118,21 +118,33 @@ npm run dev
 L'application est immédiatement accessible à l'adresse suivante :
 👉 **http://localhost:3000**
 
-### Comptes de test & Simulateur d'emails
+### Comptes de test & Identifiants préconfigurés
 
-L'application intègre deux comptes de démonstration pour valider les flux d'authentification et les tests de pénétration :
+L'application intègre trois comptes pour tester l'ensemble des rôles et fonctionnalités :
 
-1. **Client Principal** :
+1. **Compte Administrateur (Gestionnaire My Konnect)** :
+   - Email : `admin@mykonnect.fr`
+   - Mot de passe : `Admin2026!`
+   - Pouvoirs exclusifs :
+     - **Création de clients** : Seul l'administrateur peut créer de nouveaux comptes clients. L'admin définit un mot de passe temporaire ou par défaut (`Client2026!`). Le client sera invité obligatoirement à changer son mot de passe lors de sa première connexion (`mustChangePassword: true`).
+     - **Création et pilotage des projets** : Création de nouveaux projets et mise à jour de l'avancement (pourcentage de progression et statut).
+     - **Dépôt de documents** : Upload de documents dans le coffre-fort avec affectation au client destinataire.
+     - **Gestion du support** : Consultation des demandes, réponse personnalisée et possibilité de clôturer le ticket (`resolved`) ou de le laisser ouvert (`open`).
+
+2. **Compte Client Principal (Actif)** :
    - Email : `Matt4Daemon@gmail.com`
+   - Mot de passe : `Client2026!`
    - Entreprise : *Studio Matt Konnect*
-   - Contient : 3 projets en cours, des audits SEO / RGPD téléchargeables, factures et tickets support.
-2. **Client Tiers (Pour test anti-IDOR)** :
-   - Email : `sophie.durand@acme-logistique.fr`
-   - Entreprise : *ACME Logistique SAS*
-   - Permet de tester le rejet immédiat (`403 Forbidden`) lorsqu'un client tente de télécharger un document appartenant à un autre locataire.
+   - Droits : Consultation de ses projets, téléchargement de ses audits & livrables, dépôt de documents techniques, création de tickets de support.
 
-💡 **Simulateur d'Inbox o2switch intégré** :
-En local ou si vos accès SMTP ne sont pas encore configurés, cliquez sur le bouton **"Boîte Mail o2switch"** en haut à droite de l'écran de connexion. Le simulateur intercepte les emails envoyés et vous fournit directement le lien de connexion Magic Link en un clic.
+3. **Compte Client Nouveau (Test du changement de mot de passe obligatoire)** :
+   - Email : `sophie.durand@acme-logistique.fr`
+   - Mot de passe temporaire : `Acme2026!`
+   - Entreprise : *ACME Logistique SAS*
+   - Comportement : Dès la connexion réussie, un modal de sécurité obligatoire s'affiche pour forcer le client à choisir son mot de passe personnel avant tout accès au tableau de bord.
+
+💡 **Double modalité de connexion (Identifiant/Mdp OU Magic Link)** :
+Les clients et l'administrateur peuvent se connecter au choix par leur identifiant et mot de passe chiffré en BDD (bcrypt), ou par lien magique à usage unique (Magic Link expirable sous 15 min). En local, le simulateur d'Inbox o2switch permet d'ouvrir directement les emails et liens générés.
 
 ### Tests de qualité de code
 

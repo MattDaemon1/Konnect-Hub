@@ -33,11 +33,14 @@ export const clients = mysqlTable(
     name: varchar('name', { length: 255 }).notNull(),
     companyName: varchar('company_name', { length: 255 }).notNull(),
     email: varchar('email', { length: 255 }).notNull(),
+    passwordHash: varchar('password_hash', { length: 255 }),
+    role: mysqlEnum('role', ['client', 'admin']).default('client').notNull(),
     status: mysqlEnum('status', ['active', 'suspended', 'pending']).default('active').notNull(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table: any) => ({
     emailIdx: uniqueIndex('clients_email_unique_idx').on(table.email),
+    roleIdx: index('clients_role_idx').on(table.role),
   })
 );
 
@@ -143,10 +146,13 @@ CREATE TABLE IF NOT EXISTS \`clients\` (
   \`name\` VARCHAR(255) NOT NULL,
   \`company_name\` VARCHAR(255) NOT NULL,
   \`email\` VARCHAR(255) NOT NULL,
+  \`password_hash\` VARCHAR(255) DEFAULT NULL COMMENT 'Hachage securise bcrypt',
+  \`role\` ENUM('client', 'admin') NOT NULL DEFAULT 'client',
   \`status\` ENUM('active', 'suspended', 'pending') NOT NULL DEFAULT 'active',
   \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (\`id\`),
-  UNIQUE KEY \`uniq_client_email\` (\`email\`)
+  UNIQUE KEY \`uniq_client_email\` (\`email\`),
+  KEY \`idx_clients_role\` (\`role\`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS \`projects\` (

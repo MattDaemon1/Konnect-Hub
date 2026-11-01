@@ -52,7 +52,7 @@ const transporter = hasRealCredentials
  * Envoie un email transactionnel (SMTP réel o2switch ou simulation sécurisée)
  */
 export async function sendEmail(options: EmailOptions, magicLinkUrl?: string): Promise<{ success: boolean; simulated: boolean }> {
-  const from = process.env.SMTP_FROM || 'Konnect Client Portal <contact@mattkonnect.fr>';
+  const from = process.env.SMTP_FROM || 'My Konnect <contact@mykonnect.fr>';
 
   // Journalisation locale pour le simulateur de boîte de réception dev
   const logEntry: SentEmailLog = {
@@ -101,13 +101,13 @@ export async function sendEmail(options: EmailOptions, magicLinkUrl?: string): P
  * Génère le template HTML responsive et sécurisé pour le Magic Link
  */
 export function buildMagicLinkTemplate(clientName: string, magicUrl: string, expiresMinutes = 15): { html: string; text: string } {
-  const text = `Bonjour ${clientName},\n\nVoici votre lien de connexion sécurisé à l'extranet Konnect Client Portal :\n${magicUrl}\n\nCe lien est à usage unique et expirera dans ${expiresMinutes} minutes.\n\nSi vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email.\n\nCordialement,\nL'équipe Matt Konnect`;
+  const text = `Bonjour ${clientName},\n\nVoici votre lien de connexion sécurisé à votre espace My Konnect :\n${magicUrl}\n\nCe lien est à usage unique et expirera dans ${expiresMinutes} minutes.\n\nSi vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email.\n\nCordialement,\nL'équipe My Konnect`;
 
   const html = `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="utf-8">
-  <title>Connexion à votre espace client Konnect</title>
+  <title>Connexion à votre espace My Konnect</title>
   <style>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
     .card { max-width: 540px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 36px 32px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); }
@@ -119,10 +119,10 @@ export function buildMagicLinkTemplate(clientName: string, magicUrl: string, exp
 </head>
 <body>
   <div class="card">
-    <div class="brand">MATT KONNECT · EXTRANET CLIENT</div>
-    <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f172a;">Accès sécurisé sans mot de passe</h2>
+    <div class="brand">MY KONNECT · ESPACE CLIENT</div>
+    <h2 style="margin: 0 0 16px; font-size: 20px; color: #0f172a;">Accès sécurisé</h2>
     <p>Bonjour <strong>${clientName}</strong>,</p>
-    <p>Cliquez sur le bouton ci-dessous pour accéder immédiatement et de manière sécurisée à votre espace client Konnect :</p>
+    <p>Cliquez sur le bouton ci-dessous pour accéder immédiatement à votre espace My Konnect :</p>
     <div>
       <a href="${magicUrl}" class="btn" target="_blank" rel="noopener noreferrer">Se connecter à mon espace</a>
     </div>
