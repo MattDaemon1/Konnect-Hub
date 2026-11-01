@@ -16,7 +16,24 @@ import { db } from '../db/index.ts';
 import { sendEmail, buildMagicLinkTemplate, localEmailLogs } from '../services/emailService.ts';
 import { COOKIE_NAME, JWT_SECRET, AuthenticatedRequest } from '../middleware/authMiddleware.ts';
 
-// Validation Zod pour la connexion Identifiant / Mot de passe
+// Helper pour configurer le cookie de session de manière compatible iFrame et navigateurs modernes
+function setSessionCookie(res: Response, req: Request, jwtToken: string): void {
+  const isSecure = Boolean(
+    req.secure ||
+    req.headers['x-forwarded-proto'] === 'https' ||
+    process.env.NODE_ENV === 'production'
+  );
+
+  res.cookie(COOKIE_NAME, jwtToken, {
+    httpOnly: true,
+    secure: isSecure,
+    sameSite: isSecure ? 'none' : 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: '/',
+  });
+}
+
+// Validation Zod pour la connexion Identifiant / Mot de passe (formulaire unique client ou admin)
 const passwordLoginSchema = z.object({
   email: z
     .string()
@@ -26,6 +43,14 @@ const passwordLoginSchema = z.object({
     .string()
     .min(1, { message: 'Le mot de passe est obligatoire' }),
   expectedRole: z.enum(['client', 'admin']).optional(),
+});
+
+// Validation Zod pour la création directe d'un compte client (inscription libre sans session)
+const registerClientSchema = z.object({
+  name: z.string().trim().min(2, { message: 'Le nom du contact est requis (2 caractères min)' }),
+  companyName: z.string().trim().min(2, { message: 'La raison sociale est requise (2 caractères min)' }),
+  email: z.string().trim().email({ message: 'Adresse email invalide' }),
+  password: z.string().min(6, { message: 'Le mot de passe doit comporter au moins 6 caractères' }),
 });
 
 // Validation Zod changement de mot de passe obligatoire
@@ -65,6 +90,7 @@ const verifyTokenSchema = z.object({
 /**
  * POST /api/auth/login
  * Connexion par Identifiant (email) et Mot de passe
+ * Formulaire UNIQUE : le rôle (client ou admin) est déduit automatiquement du compte !
  */
 export async function handleLoginWithPassword(req: Request, res: Response): Promise<void> {
   const parseResult = passwordLoginSchema.safeParse(req.body);
@@ -75,7 +101,7 @@ export async function handleLoginWithPassword(req: Request, res: Response): Prom
     return;
   }
 
-  const { email, password, expectedRole } = parseResult.data;
+  const { email, password } = parseResult.data;
   const client = db.findClientByEmail(email);
 
   if (!client) {
@@ -90,16 +116,6 @@ export async function handleLoginWithPassword(req: Request, res: Response): Prom
     res.status(403).json({
       error: 'Votre compte est inactif ou suspendu. Veuillez contacter l\'administrateur My Konnect.',
       code: 'ACCOUNT_SUSPENDED',
-    });
-    return;
-  }
-
-  if (expectedRole && client.role !== expectedRole) {
-    res.status(403).json({
-      error: expectedRole === 'admin'
-        ? 'Ce compte ne dispose pas des privilèges d\'administration My Konnect.'
-        : 'Veuillez utiliser l\'espace d\'administration pour ce compte.',
-      code: 'ROLE_MISMATCH',
     });
     return;
   }
@@ -133,18 +149,12 @@ export async function handleLoginWithPassword(req: Request, res: Response): Prom
     algorithm: 'HS256',
   });
 
-  const isProduction = process.env.NODE_ENV === 'production';
-  res.cookie(COOKIE_NAME, jwtToken, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-  });
+  setSessionCookie(res, req, jwtToken);
 
   res.status(200).json({
     success: true,
     message: 'Authentification réussie.',
+    token: jwtToken,
     user: {
       id: client.id,
       name: client.name,
@@ -153,6 +163,65 @@ export async function handleLoginWithPassword(req: Request, res: Response): Prom
       role: client.role,
       status: client.status,
       mustChangePassword: client.mustChangePassword ?? false,
+    },
+  });
+}
+
+/**
+ * POST /api/auth/register
+ * Création directe d'un compte client (aucune session préalable requise !)
+ */
+export async function handleRegisterClient(req: Request, res: Response): Promise<void> {
+  const parseResult = registerClientSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    res.status(400).json({
+      error: parseResult.error.issues?.[0]?.message || 'Données d\'inscription invalides',
+    });
+    return;
+  }
+
+  const { name, companyName, email, password } = parseResult.data;
+
+  // Vérifier unicité email
+  if (db.findClientByEmail(email)) {
+    res.status(409).json({
+      error: 'Un compte avec cette adresse email existe déjà. Veuillez vous connecter avec vos identifiants ou demander un lien magique.',
+    });
+    return;
+  }
+
+  const newClient = db.registerClient({
+    name,
+    companyName,
+    email,
+    password,
+  });
+
+  const sessionPayload = {
+    clientId: newClient.id,
+    email: newClient.email,
+    role: newClient.role,
+  };
+
+  const jwtToken = jwt.sign(sessionPayload, JWT_SECRET, {
+    expiresIn: '7d',
+    algorithm: 'HS256',
+  });
+
+  setSessionCookie(res, req, jwtToken);
+
+  res.status(201).json({
+    success: true,
+    message: 'Compte client créé avec succès ! Bienvenue sur votre portail My Konnect.',
+    token: jwtToken,
+    user: {
+      id: newClient.id,
+      name: newClient.name,
+      companyName: newClient.companyName,
+      email: newClient.email,
+      role: newClient.role,
+      status: newClient.status,
+      mustChangePassword: false,
     },
   });
 }
@@ -371,18 +440,12 @@ export async function handleVerifyMagicLink(req: Request, res: Response): Promis
     algorithm: 'HS256',
   });
 
-  const isProduction = process.env.NODE_ENV === 'production';
-  res.cookie(COOKIE_NAME, jwtToken, {
-    httpOnly: true,
-    secure: isProduction,
-    sameSite: 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-    path: '/',
-  });
+  setSessionCookie(res, req, jwtToken);
 
   res.status(200).json({
     success: true,
     message: 'Authentification réussie.',
+    token: jwtToken,
     user: {
       id: client.id,
       name: client.name,

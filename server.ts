@@ -22,6 +22,7 @@ import {
   handleGetDevInbox,
   handleChangePassword,
   handleAdminCreateClient,
+  handleRegisterClient,
 } from './src/server/controllers/authController.ts';
 import {
   handleListDocuments,
@@ -30,8 +31,15 @@ import {
 } from './src/server/controllers/documentController.ts';
 import {
   handleListProjects,
+  handleGetProjectById,
   handleCreateProject,
+  handleUpdateProject,
+  handleDeleteProject,
   handleUpdateProjectProgress,
+  handleAddProjectAction,
+  handleToggleProjectAction,
+  handleUpdateProjectAction,
+  handleDeleteProjectAction,
 } from './src/server/controllers/projectController.ts';
 import {
   handleListTickets,
@@ -136,6 +144,7 @@ async function bootstrapServer() {
 
   // --- Authentification ---
   app.post('/api/auth/login', handleLoginWithPassword);
+  app.post('/api/auth/register', handleRegisterClient);
   app.post('/api/auth/change-password', requireAuth, handleChangePassword);
   app.post('/api/auth/magic-link', magicLinkLimiter, handleRequestMagicLink);
   app.post('/api/auth/verify', handleVerifyMagicLink);
@@ -168,10 +177,19 @@ async function bootstrapServer() {
   app.get('/api/documents/:id/download', requireAuth, handleDownloadDocument);
   app.post('/api/documents/upload', requireAuth, handleUploadDocument);
 
-  // --- Projets & Avancement ---
+  // --- Projets, CRM & Avancement ---
   app.get('/api/projects', requireAuth, handleListProjects);
+  app.get('/api/projects/:id', requireAuth, handleGetProjectById);
   app.post('/api/projects', requireAuth, handleCreateProject);
+  app.patch('/api/projects/:id', requireAuth, handleUpdateProject);
+  app.delete('/api/projects/:id', requireAuth, handleDeleteProject);
   app.patch('/api/projects/:id/progress', requireAuth, handleUpdateProjectProgress);
+
+  // --- Actions & Roadmap de Projet ---
+  app.post('/api/projects/:id/actions', requireAuth, handleAddProjectAction);
+  app.patch('/api/projects/:id/actions/:actionId/toggle', requireAuth, handleToggleProjectAction);
+  app.patch('/api/projects/:id/actions/:actionId', requireAuth, handleUpdateProjectAction);
+  app.delete('/api/projects/:id/actions/:actionId', requireAuth, handleDeleteProjectAction);
 
   // --- Tickets de Support & Alertes Admin ---
   app.get('/api/support', requireAuth, handleListTickets);

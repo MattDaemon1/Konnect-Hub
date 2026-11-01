@@ -1,17 +1,26 @@
 /**
  * @file AuthContext.tsx
  * @description Contexte d'authentification pour My Konnect
- * Gère la double méthode de connexion (Identifiant/Mot de passe et Magic Link),
- * les rôles Client et Administrateur, et la session sécurisée par cookie HTTP-Only.
+ * Gère la connexion unifiée (Identifiant/Mot de passe ou Magic Link),
+ * l'inscription client directe, et la session sécurisée (Cookie HTTP-Only + Bearer Token).
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { SessionUser, AuthState, UserRole } from '../types/index.ts';
+import { SessionUser, AuthState } from '../types/index.ts';
+import { apiFetch, setStoredToken } from '../utils/api.ts';
+
+interface RegisterData {
+  name: string;
+  companyName: string;
+  email: string;
+  password: string;
+}
 
 interface AuthContextType extends AuthState {
-  loginWithPassword: (email: string, password: string, expectedRole?: UserRole) => Promise<boolean>;
+  loginWithPassword: (email: string, password: string) => Promise<boolean>;
+  register: (data: RegisterData) => Promise<boolean>;
   changePassword: (newPassword: string) => Promise<boolean>;
-  requestMagicLink: (email: string, role?: UserRole) => Promise<{ success: boolean; message: string; previewUrl?: string; simulated?: boolean }>;
+  requestMagicLink: (email: string) => Promise<{ success: boolean; message: string; previewUrl?: string; simulated?: boolean }>;
   verifyToken: (token: string) => Promise<boolean>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -32,20 +41,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       setIsLoading(true);
       setError(null);
-      const res = await fetch('/api/auth/me', {
-        headers: { 'Accept': 'application/json' },
-        credentials: 'include', // Envoie le cookie HTTP-Only konnect_session
-      });
+      const res = await apiFetch('/api/auth/me');
 
       if (res.ok) {
         const data = await res.json();
         setUser(data.user);
       } else {
         setUser(null);
+        setStoredToken(null);
       }
     } catch (err) {
       console.error('[AuthContext] Erreur vérification session:', err);
       setUser(null);
+      setStoredToken(null);
     } finally {
       setIsLoading(false);
     }
@@ -55,19 +63,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, [refreshUser]);
 
-  // Connexion classique par Identifiant (email) et Mot de passe
-  const loginWithPassword = async (email: string, password: string, expectedRole?: UserRole): Promise<boolean> => {
+  // Connexion unifiée par Identifiant (email) et Mot de passe (pour client ET admin)
+  const loginWithPassword = async (email: string, password: string): Promise<boolean> => {
     setError(null);
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await apiFetch('/api/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ email, password, expectedRole }),
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await res.json();
@@ -76,9 +80,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const errMsg = data.error || 'Identifiant ou mot de passe incorrect.';
         setError(errMsg);
         setUser(null);
+        setStoredToken(null);
         return false;
       }
 
+      if (data.token) {
+        setStoredToken(data.token);
+      }
       setUser(data.user);
       return true;
     } catch (err: unknown) {
@@ -90,18 +98,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Création / Inscription directe d'un compte client
+  const register = async (regData: RegisterData): Promise<boolean> => {
+    setError(null);
+    setIsLoading(true);
+    try {
+      const res = await apiFetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(regData),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errMsg = data.error || 'Erreur lors de la création du compte.';
+        setError(errMsg);
+        return false;
+      }
+
+      if (data.token) {
+        setStoredToken(data.token);
+      }
+      setUser(data.user);
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erreur réseau lors de la création du compte.';
+      setError(msg);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Demander un Magic Link
-  const requestMagicLink = async (email: string, role?: UserRole) => {
+  const requestMagicLink = async (email: string) => {
     setError(null);
     try {
-      const res = await fetch('/api/auth/magic-link', {
+      const res = await apiFetch('/api/auth/magic-link', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ email, role }),
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
       });
 
       const data = await res.json();
@@ -125,14 +162,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/verify', {
+      const res = await apiFetch('/api/auth/verify', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token }),
-        credentials: 'include',
       });
 
       const data = await res.json();
@@ -140,9 +173,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!res.ok) {
         setError(data.error || 'Ce lien de connexion est invalide ou a expiré.');
         setUser(null);
+        setStoredToken(null);
         return false;
       }
 
+      if (data.token) {
+        setStoredToken(data.token);
+      }
       setUser(data.user);
       return true;
     } catch {
@@ -157,14 +194,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const changePassword = async (newPassword: string): Promise<boolean> => {
     setError(null);
     try {
-      const res = await fetch('/api/auth/change-password', {
+      const res = await apiFetch('/api/auth/change-password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newPassword }),
-        credentials: 'include',
       });
 
       const data = await res.json();
@@ -186,13 +219,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Déconnexion
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include',
-      });
+      await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch (err) {
       console.error('[AuthContext] Erreur logout:', err);
     } finally {
+      setStoredToken(null);
       setUser(null);
     }
   };
@@ -205,6 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         error,
         loginWithPassword,
+        register,
         changePassword,
         requestMagicLink,
         verifyToken,

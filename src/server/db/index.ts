@@ -15,6 +15,7 @@ import bcrypt from 'bcryptjs';
 import {
   Client,
   Project,
+  ProjectAction,
   DocumentRecord,
   MagicLinkRecord,
   SupportTicket,
@@ -302,8 +303,44 @@ class DatabaseStore {
       description: 'Audit sémantique, optimisation Core Web Vitals et déploiement sous LiteSpeed o2switch.',
       status: 'in_progress',
       progressPercentage: 75,
+      targetDate: '2026-03-25',
+      budget: '3 200 € HT',
       createdAt: '2026-02-10T11:00:00Z',
       deliverablesCount: 4,
+      actions: [
+        {
+          id: 'act_101_1',
+          title: 'Audit technique LiteSpeed & Core Web Vitals',
+          description: 'Analyse TTFB, optimisation LSCache et audit mobile.',
+          status: 'completed',
+          assignedTo: 'admin',
+          completedAt: '2026-02-14T10:00:00Z',
+        },
+        {
+          id: 'act_101_2',
+          title: 'Recherche sémantique & arborescence locale',
+          description: 'Ciblage mots-clés haute intention et cocons sémantiques.',
+          status: 'completed',
+          assignedTo: 'admin',
+          completedAt: '2026-02-20T16:00:00Z',
+        },
+        {
+          id: 'act_101_3',
+          title: 'Transmission des accès cPanel & DNS o2switch',
+          description: 'Le client fournit les identifiants techniques ou délègue le DNS.',
+          status: 'completed',
+          assignedTo: 'client',
+          completedAt: '2026-02-22T09:30:00Z',
+        },
+        {
+          id: 'act_101_4',
+          title: 'Intégration du cache LSCache & HTTPS HTTP/3',
+          description: 'Mise en place règles .htaccess et validation score 100/100.',
+          status: 'in_progress',
+          assignedTo: 'admin',
+          dueDate: '2026-03-12',
+        },
+      ],
     };
     const p2: Project = {
       id: 'proj_102',
@@ -314,8 +351,28 @@ class DatabaseStore {
       description: 'Cartographie des flux de données, registre DPO et sécurisation des formulaires.',
       status: 'completed',
       progressPercentage: 100,
+      targetDate: '2026-02-05',
+      budget: '1 800 € HT',
       createdAt: '2026-01-20T14:30:00Z',
       deliverablesCount: 2,
+      actions: [
+        {
+          id: 'act_102_1',
+          title: 'Cartographie des données personnelles & registre DPO',
+          description: 'Recensement des sous-traitants et finalités de traitement.',
+          status: 'completed',
+          assignedTo: 'admin',
+          completedAt: '2026-01-25T11:00:00Z',
+        },
+        {
+          id: 'act_102_2',
+          title: 'Validation de la politique de confidentialité par la direction',
+          description: 'Relecture et accord officiel du client.',
+          status: 'completed',
+          assignedTo: 'client',
+          completedAt: '2026-02-04T15:00:00Z',
+        },
+      ],
     };
     const p3: Project = {
       id: 'proj_103',
@@ -326,8 +383,52 @@ class DatabaseStore {
       description: 'Développement de l\'extranet sécurisé avec sessions HTTP-Only et double authentification.',
       status: 'in_progress',
       progressPercentage: 60,
+      targetDate: '2026-03-30',
+      budget: '4 800 € HT',
       createdAt: '2026-02-25T09:15:00Z',
       deliverablesCount: 3,
+      actions: [
+        {
+          id: 'act_103_1',
+          title: 'Spécifications de sécurité OWASP & Schéma BDD MariaDB',
+          description: 'Isolation multi-tenant, sanitization Zod et CSP Helmet.',
+          status: 'completed',
+          assignedTo: 'admin',
+          completedAt: '2026-02-26T17:00:00Z',
+        },
+        {
+          id: 'act_103_2',
+          title: 'Validation du cahier des charges et charte graphique',
+          description: 'Le client valide les écrans de connexion et dashboard.',
+          status: 'completed',
+          assignedTo: 'client',
+          completedAt: '2026-02-28T14:00:00Z',
+        },
+        {
+          id: 'act_103_3',
+          title: 'Implémentation de l\'authentification Magic Link & Sessions',
+          description: 'Génération token SHA-256 et cookie HTTP-Only SameSite=Strict.',
+          status: 'completed',
+          assignedTo: 'admin',
+          completedAt: '2026-03-01T18:00:00Z',
+        },
+        {
+          id: 'act_103_4',
+          title: 'Recette des droits d\'accès et test d\'étanchéité IDOR',
+          description: 'Audit sur les téléchargements de fichiers et tickets.',
+          status: 'in_progress',
+          assignedTo: 'admin',
+          dueDate: '2026-03-15',
+        },
+        {
+          id: 'act_103_5',
+          title: 'Recette finale client & mise en production Phusion Passenger',
+          description: 'Validation de l\'extranet complet en environnement de production o2switch.',
+          status: 'todo',
+          assignedTo: 'client',
+          dueDate: '2026-03-30',
+        },
+      ],
     };
     const p4: Project = {
       id: 'proj_201',
@@ -337,9 +438,37 @@ class DatabaseStore {
       title: 'Optimisation Infrastructure & Logistique API',
       description: 'Automatisation des flux EDI et interfaçage ERP client.',
       status: 'in_progress',
-      progressPercentage: 35,
+      progressPercentage: 33,
+      targetDate: '2026-04-15',
+      budget: '6 500 € HT',
       createdAt: '2026-02-15T09:15:00Z',
       deliverablesCount: 1,
+      actions: [
+        {
+          id: 'act_201_1',
+          title: 'Audit des flux d\'entrée EDI / REST',
+          description: 'Cartographie des endpoints logistiques et volumétrie.',
+          status: 'completed',
+          assignedTo: 'admin',
+          completedAt: '2026-02-22T10:00:00Z',
+        },
+        {
+          id: 'act_201_2',
+          title: 'Transmission des spécifications des webhooks ERP',
+          description: 'Fournir la documentation de l\'ERP interne.',
+          status: 'in_progress',
+          assignedTo: 'client',
+          dueDate: '2026-03-18',
+        },
+        {
+          id: 'act_201_3',
+          title: 'Déploiement du connecteur sécurisé Node.js',
+          description: 'Installation sur serveur dédié et configuration IP Whitelisting.',
+          status: 'todo',
+          assignedTo: 'admin',
+          dueDate: '2026-04-10',
+        },
+      ],
     };
 
     this.projects.set(p1.id, p1);
@@ -428,6 +557,30 @@ class DatabaseStore {
     return client;
   }
 
+  registerClient(data: {
+    name: string;
+    companyName: string;
+    email: string;
+    password: string;
+  }): Client {
+    const passwordHash = bcrypt.hashSync(data.password, 10);
+
+    const client: Client = {
+      id: `cli_${crypto.randomBytes(6).toString('hex')}`,
+      name: data.name,
+      companyName: data.companyName,
+      email: data.email.toLowerCase().trim(),
+      passwordHash,
+      mustChangePassword: false,
+      role: 'client',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    this.clients.set(client.id, client);
+    return client;
+  }
+
   updatePassword(clientId: string, newPasswordRaw: string): boolean {
     const client = this.clients.get(clientId);
     if (!client) return false;
@@ -473,6 +626,7 @@ class DatabaseStore {
       .filter((p) => p.clientId === clientId)
       .map((p) => ({
         ...p,
+        actions: p.actions || [],
         clientName: client?.name,
         clientCompany: client?.companyName,
       }));
@@ -483,10 +637,23 @@ class DatabaseStore {
       const client = this.clients.get(p.clientId);
       return {
         ...p,
+        actions: p.actions || [],
         clientName: client?.name,
         clientCompany: client?.companyName,
       };
     });
+  }
+
+  findProjectById(id: string): Project | undefined {
+    const project = this.projects.get(id);
+    if (!project) return undefined;
+    const client = this.clients.get(project.clientId);
+    return {
+      ...project,
+      actions: project.actions || [],
+      clientName: client?.name,
+      clientCompany: client?.companyName,
+    };
   }
 
   createProject(data: {
@@ -495,8 +662,57 @@ class DatabaseStore {
     description: string;
     progressPercentage?: number;
     status?: Project['status'];
+    targetDate?: string;
+    budget?: string;
+    initialActions?: Array<{ title: string; description?: string; assignedTo?: 'admin' | 'client'; dueDate?: string }>;
   }): Project {
     const client = this.clients.get(data.clientId);
+    const actions: ProjectAction[] = (data.initialActions && data.initialActions.length > 0)
+      ? data.initialActions.map((act, index) => ({
+          id: `act_${Date.now().toString(36)}_${index}`,
+          title: act.title,
+          description: act.description,
+          status: 'todo' as const,
+          assignedTo: act.assignedTo || 'admin',
+          dueDate: act.dueDate,
+        }))
+      : [
+          {
+            id: `act_${Date.now().toString(36)}_1`,
+            title: 'Cadrage technique et périmètre du projet',
+            description: 'Validation des spécifications et livrables attendus.',
+            status: 'completed' as const,
+            assignedTo: 'admin' as const,
+            completedAt: new Date().toISOString(),
+          },
+          {
+            id: `act_${Date.now().toString(36)}_2`,
+            title: 'Fourniture des éléments et accès par le client',
+            description: 'Dépôt des documents ou identifiants nécessaires.',
+            status: 'todo' as const,
+            assignedTo: 'client' as const,
+          },
+          {
+            id: `act_${Date.now().toString(36)}_3`,
+            title: 'Développement et intégration technique',
+            description: 'Réalisation des livrables selon les règles de sécurité OWASP.',
+            status: 'in_progress' as const,
+            assignedTo: 'admin' as const,
+          },
+          {
+            id: `act_${Date.now().toString(36)}_4`,
+            title: 'Recette finale et livraison client',
+            description: 'Validation conjointe du livrable et mise à disposition dans le coffre-fort.',
+            status: 'todo' as const,
+            assignedTo: 'client' as const,
+          },
+        ];
+
+    const completedCount = actions.filter((a) => a.status === 'completed').length;
+    const computedProgress = actions.length > 0
+      ? Math.round((completedCount / actions.length) * 100)
+      : (data.progressPercentage || 0);
+
     const project: Project = {
       id: `proj_${Date.now().toString(36)}`,
       clientId: data.clientId,
@@ -504,13 +720,205 @@ class DatabaseStore {
       clientCompany: client?.companyName,
       title: data.title,
       description: data.description,
-      progressPercentage: data.progressPercentage || 0,
+      progressPercentage: data.progressPercentage !== undefined ? data.progressPercentage : computedProgress,
       status: data.status || 'in_progress',
+      targetDate: data.targetDate,
+      budget: data.budget,
+      actions,
       createdAt: new Date().toISOString(),
       deliverablesCount: 0,
     };
     this.projects.set(project.id, project);
     return project;
+  }
+
+  updateProject(
+    projectId: string,
+    updates: {
+      title?: string;
+      description?: string;
+      clientId?: string;
+      status?: Project['status'];
+      progressPercentage?: number;
+      targetDate?: string;
+      budget?: string;
+    }
+  ): Project | undefined {
+    const project = this.projects.get(projectId);
+    if (!project) return undefined;
+
+    if (updates.title !== undefined) project.title = updates.title;
+    if (updates.description !== undefined) project.description = updates.description;
+    if (updates.clientId !== undefined) {
+      project.clientId = updates.clientId;
+      const client = this.clients.get(updates.clientId);
+      project.clientName = client?.name;
+      project.clientCompany = client?.companyName;
+    }
+    if (updates.status !== undefined) project.status = updates.status;
+    if (updates.targetDate !== undefined) project.targetDate = updates.targetDate;
+    if (updates.budget !== undefined) project.budget = updates.budget;
+    if (updates.progressPercentage !== undefined) {
+      project.progressPercentage = Math.min(100, Math.max(0, updates.progressPercentage));
+    }
+
+    project.updatedAt = new Date().toISOString();
+    this.projects.set(projectId, project);
+    return this.findProjectById(projectId);
+  }
+
+  deleteProject(projectId: string): boolean {
+    return this.projects.delete(projectId);
+  }
+
+  addProjectAction(
+    projectId: string,
+    actionData: {
+      title: string;
+      description?: string;
+      assignedTo?: 'admin' | 'client';
+      dueDate?: string;
+      status?: 'todo' | 'in_progress' | 'completed';
+    }
+  ): { project: Project; action: ProjectAction } | undefined {
+    const project = this.projects.get(projectId);
+    if (!project) return undefined;
+
+    if (!project.actions) project.actions = [];
+
+    const action: ProjectAction = {
+      id: `act_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`,
+      title: actionData.title,
+      description: actionData.description || '',
+      status: actionData.status || 'todo',
+      assignedTo: actionData.assignedTo || 'admin',
+      dueDate: actionData.dueDate,
+      completedAt: actionData.status === 'completed' ? new Date().toISOString() : undefined,
+    };
+
+    project.actions.push(action);
+
+    // Calcul automatique du taux d'avancement
+    const completedCount = project.actions.filter((a) => a.status === 'completed').length;
+    project.progressPercentage = Math.round((completedCount / project.actions.length) * 100);
+    if (project.progressPercentage === 100) {
+      project.status = 'completed';
+    } else if (project.status === 'completed' && project.progressPercentage < 100) {
+      project.status = 'in_progress';
+    }
+
+    project.updatedAt = new Date().toISOString();
+    this.projects.set(projectId, project);
+
+    return {
+      project: this.findProjectById(projectId)!,
+      action,
+    };
+  }
+
+  toggleProjectAction(
+    projectId: string,
+    actionId: string,
+    userRole: string,
+    userId: string
+  ): { project: Project; action: ProjectAction } | undefined {
+    const project = this.projects.get(projectId);
+    if (!project) return undefined;
+
+    // Isolation multi-tenant : si l'utilisateur est client, il ne peut modifier que les projets qui lui appartiennent
+    if (userRole !== 'admin' && project.clientId !== userId) {
+      return undefined;
+    }
+
+    const action = (project.actions || []).find((a) => a.id === actionId);
+    if (!action) return undefined;
+
+    // Basculer l'état
+    if (action.status === 'completed') {
+      action.status = 'todo';
+      delete action.completedAt;
+    } else {
+      action.status = 'completed';
+      action.completedAt = new Date().toISOString();
+    }
+
+    // Recalculer l'avancement global
+    const completedCount = project.actions.filter((a) => a.status === 'completed').length;
+    project.progressPercentage = Math.round((completedCount / project.actions.length) * 100);
+    if (project.progressPercentage === 100) {
+      project.status = 'completed';
+    } else if (project.status === 'completed' && project.progressPercentage < 100) {
+      project.status = 'in_progress';
+    }
+
+    project.updatedAt = new Date().toISOString();
+    this.projects.set(projectId, project);
+
+    return {
+      project: this.findProjectById(projectId)!,
+      action,
+    };
+  }
+
+  updateProjectAction(
+    projectId: string,
+    actionId: string,
+    updates: Partial<ProjectAction>
+  ): { project: Project; action: ProjectAction } | undefined {
+    const project = this.projects.get(projectId);
+    if (!project) return undefined;
+
+    const action = (project.actions || []).find((a) => a.id === actionId);
+    if (!action) return undefined;
+
+    if (updates.title !== undefined) action.title = updates.title;
+    if (updates.description !== undefined) action.description = updates.description;
+    if (updates.assignedTo !== undefined) action.assignedTo = updates.assignedTo;
+    if (updates.dueDate !== undefined) action.dueDate = updates.dueDate;
+    if (updates.status !== undefined) {
+      action.status = updates.status;
+      if (updates.status === 'completed' && !action.completedAt) {
+        action.completedAt = new Date().toISOString();
+      } else if (updates.status !== 'completed') {
+        delete action.completedAt;
+      }
+    }
+
+    // Recalculer l'avancement global
+    const completedCount = project.actions.filter((a) => a.status === 'completed').length;
+    project.progressPercentage = Math.round((completedCount / project.actions.length) * 100);
+    if (project.progressPercentage === 100) {
+      project.status = 'completed';
+    } else if (project.status === 'completed' && project.progressPercentage < 100) {
+      project.status = 'in_progress';
+    }
+
+    project.updatedAt = new Date().toISOString();
+    this.projects.set(projectId, project);
+
+    return {
+      project: this.findProjectById(projectId)!,
+      action,
+    };
+  }
+
+  deleteProjectAction(projectId: string, actionId: string): Project | undefined {
+    const project = this.projects.get(projectId);
+    if (!project) return undefined;
+
+    project.actions = (project.actions || []).filter((a) => a.id !== actionId);
+
+    // Recalculer l'avancement
+    if (project.actions.length > 0) {
+      const completedCount = project.actions.filter((a) => a.status === 'completed').length;
+      project.progressPercentage = Math.round((completedCount / project.actions.length) * 100);
+    } else {
+      project.progressPercentage = 0;
+    }
+
+    project.updatedAt = new Date().toISOString();
+    this.projects.set(projectId, project);
+    return this.findProjectById(projectId);
   }
 
   updateProjectProgress(projectId: string, progressPercentage: number, status?: Project['status']): Project | undefined {
@@ -525,7 +933,7 @@ class DatabaseStore {
       project.updatedAt = new Date().toISOString();
       this.projects.set(projectId, project);
     }
-    return project;
+    return this.findProjectById(projectId);
   }
 
   // --- DOCUMENTS ---

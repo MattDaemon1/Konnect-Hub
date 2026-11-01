@@ -11,8 +11,9 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
-import { Project, DocumentRecord, SupportTicket, DocumentCategory, Client } from '../types/index.ts';
+import { Project, ProjectAction, DocumentRecord, SupportTicket, DocumentCategory, Client } from '../types/index.ts';
 import { MattKonnectLogo } from './MattKonnectLogo.tsx';
+import { apiFetch } from '../utils/api.ts';
 import {
   FolderKanban,
   FileText,
@@ -35,6 +36,18 @@ import {
   X,
   FileUp,
   ShieldCheck,
+  Calendar,
+  DollarSign,
+  Layers,
+  Edit3,
+  Trash2,
+  Filter,
+  Briefcase,
+  ListTodo,
+  CheckSquare,
+  Square,
+  Sparkles,
+  ArrowRight,
 } from 'lucide-react';
 
 type TabKey = 'projects' | 'documents' | 'support' | 'clients';
@@ -74,10 +87,39 @@ export const Dashboard: React.FC = () => {
   const [newProjectClientId, setNewProjectClientId] = useState<string>('');
   const [newProjectTitle, setNewProjectTitle] = useState<string>('');
   const [newProjectDescription, setNewProjectDescription] = useState<string>('');
-  const [newProjectProgress, setNewProjectProgress] = useState<number>(10);
+  const [newProjectProgress, setNewProjectProgress] = useState<number>(0);
   const [newProjectStatus, setNewProjectStatus] = useState<Project['status']>('in_progress');
+  const [newProjectTargetDate, setNewProjectTargetDate] = useState<string>('');
+  const [newProjectBudget, setNewProjectBudget] = useState<string>('');
   const [isCreatingProject, setIsCreatingProject] = useState<boolean>(false);
   const [projectCreationError, setProjectCreationError] = useState<string | null>(null);
+
+  // Vue détaillée / Feuille de route & Actions d'un projet
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+  // Modal d'édition complète de projet (Admin)
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editProjectTitle, setEditProjectTitle] = useState<string>('');
+  const [editProjectDescription, setEditProjectDescription] = useState<string>('');
+  const [editProjectClientId, setEditProjectClientId] = useState<string>('');
+  const [editProjectStatus, setEditProjectStatus] = useState<Project['status']>('in_progress');
+  const [editProjectProgress, setEditProjectProgress] = useState<number>(0);
+  const [editProjectTargetDate, setEditProjectTargetDate] = useState<string>('');
+  const [editProjectBudget, setEditProjectBudget] = useState<string>('');
+  const [isSavingProject, setIsSavingProject] = useState<boolean>(false);
+  const [projectEditError, setProjectEditError] = useState<string | null>(null);
+
+  // Filtre et affichage des projets (Vue CRM)
+  const [projectClientFilter, setProjectClientFilter] = useState<string>('all');
+  const [projectViewGroup, setProjectViewGroup] = useState<'grid' | 'crm'>('grid');
+
+  // Formulaire : Ajout d'une action / jalon dans le projet sélectionné
+  const [newActionTitle, setNewActionTitle] = useState<string>('');
+  const [newActionDescription, setNewActionDescription] = useState<string>('');
+  const [newActionAssignedTo, setNewActionAssignedTo] = useState<'admin' | 'client'>('admin');
+  const [newActionDueDate, setNewActionDueDate] = useState<string>('');
+  const [isAddingAction, setIsAddingAction] = useState<boolean>(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Formulaire : Dépôt Document (Client & Admin)
   const [docTitle, setDocTitle] = useState<string>('');
@@ -112,13 +154,13 @@ export const Dashboard: React.FC = () => {
     try {
       setIsLoading(true);
       const requests = [
-        fetch('/api/projects', { credentials: 'include' }),
-        fetch('/api/documents', { credentials: 'include' }),
-        fetch('/api/support', { credentials: 'include' }),
+        apiFetch('/api/projects'),
+        apiFetch('/api/documents'),
+        apiFetch('/api/support'),
       ];
 
       if (isAdmin) {
-        requests.push(fetch('/api/clients', { credentials: 'include' }));
+        requests.push(apiFetch('/api/clients'));
       }
 
       const responses = await Promise.all(requests);
@@ -126,7 +168,12 @@ export const Dashboard: React.FC = () => {
 
       if (projRes.ok) {
         const d = await projRes.json();
-        setProjects(d.projects || []);
+        const loadedProjects: Project[] = d.projects || [];
+        setProjects(loadedProjects);
+        setSelectedProject((prev) => {
+          if (!prev) return null;
+          return loadedProjects.find((p) => p.id === prev.id) || null;
+        });
       }
       if (docRes.ok) {
         const d = await docRes.json();
@@ -161,9 +208,8 @@ export const Dashboard: React.FC = () => {
   // Téléchargement sécurisé
   const handleDownload = async (docId: string, title: string) => {
     try {
-      const res = await fetch(`/api/documents/${docId}/download`, {
+      const res = await apiFetch(`/api/documents/${docId}/download`, {
         method: 'GET',
-        credentials: 'include',
       });
 
       if (!res.ok) {
@@ -217,7 +263,7 @@ export const Dashboard: React.FC = () => {
       setIsUploadingDoc(true);
       setDocUploadError(null);
 
-      const res = await fetch('/api/documents/upload', {
+      const res = await apiFetch('/api/documents/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -228,7 +274,6 @@ export const Dashboard: React.FC = () => {
           mimeType: selectedFile.mimeType,
           targetClientId: isAdmin ? docTargetClientId : undefined,
         }),
-        credentials: 'include',
       });
 
       const data = await res.json();
@@ -259,7 +304,7 @@ export const Dashboard: React.FC = () => {
       setIsCreatingClient(true);
       setClientCreationError(null);
 
-      const res = await fetch('/api/clients', {
+      const res = await apiFetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -268,7 +313,6 @@ export const Dashboard: React.FC = () => {
           email: newClientEmail.trim(),
           initialPassword: newClientInitialPassword.trim(),
         }),
-        credentials: 'include',
       });
 
       const data = await res.json();
@@ -300,7 +344,7 @@ export const Dashboard: React.FC = () => {
       setIsCreatingProject(true);
       setProjectCreationError(null);
 
-      const res = await fetch('/api/projects', {
+      const res = await apiFetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -309,8 +353,9 @@ export const Dashboard: React.FC = () => {
           description: newProjectDescription.trim(),
           progressPercentage: Number(newProjectProgress) || 0,
           status: newProjectStatus,
+          targetDate: newProjectTargetDate.trim() || undefined,
+          budget: newProjectBudget.trim() || undefined,
         }),
-        credentials: 'include',
       });
 
       const data = await res.json();
@@ -322,8 +367,10 @@ export const Dashboard: React.FC = () => {
       setShowCreateProjectModal(false);
       setNewProjectTitle('');
       setNewProjectDescription('');
-      setNewProjectProgress(10);
+      setNewProjectProgress(0);
       setNewProjectStatus('in_progress');
+      setNewProjectTargetDate('');
+      setNewProjectBudget('');
       fetchData();
     } catch {
       setProjectCreationError('Erreur réseau');
@@ -332,7 +379,185 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  // Mise à jour de l'avancement d'un projet (Admin)
+  // Préparation et ouverture du modal d'édition d'un projet (Admin)
+  const handleOpenEditProject = (project: Project) => {
+    setEditingProject(project);
+    setEditProjectTitle(project.title);
+    setEditProjectDescription(project.description);
+    setEditProjectClientId(project.clientId);
+    setEditProjectStatus(project.status);
+    setEditProjectProgress(project.progressPercentage);
+    setEditProjectTargetDate(project.targetDate || '');
+    setEditProjectBudget(project.budget || '');
+    setProjectEditError(null);
+  };
+
+  // Enregistrement des modifications d'un projet (Admin)
+  const handleSaveProjectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProject || !editProjectTitle.trim() || isSavingProject) return;
+
+    try {
+      setIsSavingProject(true);
+      setProjectEditError(null);
+
+      const res = await apiFetch(`/api/projects/${editingProject.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: editProjectTitle.trim(),
+          description: editProjectDescription.trim(),
+          clientId: editProjectClientId,
+          status: editProjectStatus,
+          progressPercentage: Number(editProjectProgress),
+          targetDate: editProjectTargetDate.trim() || undefined,
+          budget: editProjectBudget.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setProjectEditError(data.error || 'Erreur lors de la mise à jour');
+        return;
+      }
+
+      setEditingProject(null);
+      if (selectedProject && selectedProject.id === editingProject.id) {
+        setSelectedProject(data.project);
+      }
+      fetchData();
+    } catch {
+      setProjectEditError('Erreur réseau lors de la modification');
+    } finally {
+      setIsSavingProject(false);
+    }
+  };
+
+  // Suppression d'un projet (Admin)
+  const handleDeleteProject = async (projectId: string) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer définitivement ce projet et ses actions associées ?')) {
+      return;
+    }
+
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        if (selectedProject?.id === projectId) setSelectedProject(null);
+        if (editingProject?.id === projectId) setEditingProject(null);
+        fetchData();
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Erreur lors de la suppression');
+      }
+    } catch {
+      alert('Erreur réseau');
+    }
+  };
+
+  // Bascule cochée/décochée d'une action du projet (Client & Admin)
+  const handleToggleAction = async (projectId: string, actionId: string) => {
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/actions/${actionId}/toggle`, {
+        method: 'PATCH',
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const updatedProject: Project = data.project;
+
+        // Mise à jour instantanée du state sans attendre un refetch
+        setProjects((prev) => prev.map((p) => (p.id === projectId ? updatedProject : p)));
+        if (selectedProject && selectedProject.id === projectId) {
+          setSelectedProject(updatedProject);
+        }
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Erreur lors de la validation de l\'action');
+      }
+    } catch {
+      alert('Erreur réseau');
+    }
+  };
+
+  // Ajout d'une action dans la feuille de route du projet (Admin)
+  const handleAddAction = async (e: React.FormEvent, projectId: string) => {
+    e.preventDefault();
+    if (!newActionTitle.trim() || isAddingAction) return;
+
+    try {
+      setIsAddingAction(true);
+      setActionError(null);
+
+      const res = await apiFetch(`/api/projects/${projectId}/actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: newActionTitle.trim(),
+          description: newActionDescription.trim() || undefined,
+          assignedTo: newActionAssignedTo,
+          dueDate: newActionDueDate.trim() || undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setActionError(data.error || 'Erreur lors de l\'ajout de l\'action');
+        return;
+      }
+
+      setNewActionTitle('');
+      setNewActionDescription('');
+      setNewActionAssignedTo('admin');
+      setNewActionDueDate('');
+
+      const updatedProject: Project = data.project;
+      setProjects((prev) => prev.map((p) => (p.id === projectId ? updatedProject : p)));
+      if (selectedProject && selectedProject.id === projectId) {
+        setSelectedProject(updatedProject);
+      }
+    } catch {
+      setActionError('Erreur réseau');
+    } finally {
+      setIsAddingAction(false);
+    }
+  };
+
+  // Suppression d'une action d'un projet (Admin)
+  const handleDeleteAction = async (projectId: string, actionId: string) => {
+    if (!confirm('Supprimer cette action de la feuille de route ?')) return;
+
+    try {
+      const res = await apiFetch(`/api/projects/${projectId}/actions/${actionId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const updatedProject: Project = data.project;
+        setProjects((prev) => prev.map((p) => (p.id === projectId ? updatedProject : p)));
+        if (selectedProject && selectedProject.id === projectId) {
+          setSelectedProject(updatedProject);
+        }
+      } else {
+        const d = await res.json();
+        alert(d.error || 'Erreur lors de la suppression de l\'action');
+      }
+    } catch {
+      alert('Erreur réseau');
+    }
+  };
+
+  // Pré-sélection d'un client et ouverture de création projet (Vue CRM)
+  const handleQuickCreateForClient = (clientId: string) => {
+    setNewProjectClientId(clientId);
+    setProjectCreationError(null);
+    setShowCreateProjectModal(true);
+  };
+
+  // Mise à jour rapide de l'avancement d'un projet (Admin)
   const handleUpdateProgress = async (projectId: string, currentProgress: number) => {
     const newProgressStr = prompt('Nouveau taux d\'avancement (0 à 100 %) :', currentProgress.toString());
     if (newProgressStr === null) return;
@@ -344,18 +569,22 @@ export const Dashboard: React.FC = () => {
     }
 
     try {
-      const res = await fetch(`/api/projects/${projectId}/progress`, {
+      const res = await apiFetch(`/api/projects/${projectId}/progress`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           progressPercentage: newProgress,
           status: newProgress === 100 ? 'completed' : 'in_progress',
         }),
-        credentials: 'include',
       });
 
       if (res.ok) {
-        fetchData();
+        const data = await res.json();
+        const updated = data.project;
+        setProjects((prev) => prev.map((p) => (p.id === projectId ? updated : p)));
+        if (selectedProject && selectedProject.id === projectId) {
+          setSelectedProject(updated);
+        }
       }
     } catch {
       alert('Erreur lors de la mise à jour');
@@ -371,7 +600,7 @@ export const Dashboard: React.FC = () => {
       setIsSubmittingTicket(true);
       setTicketSuccessMsg(null);
 
-      const res = await fetch('/api/support', {
+      const res = await apiFetch('/api/support', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -379,7 +608,6 @@ export const Dashboard: React.FC = () => {
           message: ticketMessage.trim(),
           priority: ticketPriority,
         }),
-        credentials: 'include',
       });
 
       if (res.ok) {
@@ -405,14 +633,13 @@ export const Dashboard: React.FC = () => {
 
     try {
       setIsSubmittingReply(true);
-      const res = await fetch(`/api/support/${ticketId}/reply`, {
+      const res = await apiFetch(`/api/support/${ticketId}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reply: adminReplyText.trim(),
           status,
         }),
-        credentials: 'include',
       });
 
       if (res.ok) {
@@ -674,87 +901,383 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* =========================================================================
-            ONGLET 1 : PROJETS
+            ONGLET 1 : PROJETS & SUIVI OPÉRATIONNEL (CRM)
             ========================================================================= */}
         {activeTab === 'projects' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span>{projects.length} projet{projects.length > 1 ? 's' : ''} actif{projects.length > 1 ? 's' : ''}</span>
-              {isAdmin && (
-                <span className="text-slate-500">
-                  Cliquez sur un pourcentage pour ajuster l'avancement
-                </span>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {projects.length === 0 ? (
-                <div className="col-span-full p-10 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-lg">
-                  Aucun projet enregistré. {isAdmin && 'Cliquez sur "Nouveau Projet" pour en créer un.'}
+            {/* Barre d'outils CRM & Filtres */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900/40 border border-slate-800/80 rounded-lg p-3 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5 text-slate-300 font-medium">
+                  <FolderKanban className="w-4 h-4 text-sky-400" />
+                  <span>
+                    {projects.length} projet{projects.length > 1 ? 's' : ''} au total
+                  </span>
                 </div>
-              ) : (
-                projects.map((project) => (
-                  <div
-                    key={project.id}
-                    className="bg-slate-900/60 border border-slate-800 rounded-lg p-5 flex flex-col justify-between space-y-4 hover:border-slate-700/80 transition-colors"
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-slate-400">
-                        <span className="font-mono text-[11px] text-slate-500">{project.id}</span>
-                        {isAdmin && project.clientCompany && (
-                          <span className="text-sky-300 font-medium truncate max-w-[140px]">
-                            {project.clientCompany}
-                          </span>
-                        )}
-                        <span className="text-[11px] text-slate-300">
-                          {project.status === 'completed'
-                            ? 'Terminé'
-                            : project.status === 'on_hold'
-                            ? 'En pause'
-                            : 'En cours'}
-                        </span>
-                      </div>
 
-                      <h2 className="text-sm font-semibold text-white leading-snug">
-                        {project.title}
-                      </h2>
-
-                      <p className="text-xs text-slate-400 line-clamp-3 leading-relaxed">
-                        {project.description}
-                      </p>
+                {isAdmin && (
+                  <>
+                    <span className="text-slate-700 hidden sm:inline">|</span>
+                    {/* Filtre par client */}
+                    <div className="flex items-center gap-1.5">
+                      <Filter className="w-3.5 h-3.5 text-slate-500" />
+                      <select
+                        value={projectClientFilter}
+                        onChange={(e) => setProjectClientFilter(e.target.value)}
+                        className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-sky-500"
+                      >
+                        <option value="all">Tous les clients ({clientsList.filter((c) => c.role === 'client').length})</option>
+                        {clientsList
+                          .filter((c) => c.role === 'client')
+                          .map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.companyName} ({c.name})
+                            </option>
+                          ))}
+                      </select>
                     </div>
 
-                    <div className="space-y-2 pt-2 border-t border-slate-800/80">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Avancement</span>
-                        {isAdmin ? (
-                          <button
-                            onClick={() => handleUpdateProgress(project.id, project.progressPercentage)}
-                            className="font-bold text-sky-400 hover:text-sky-300 underline tabular-nums"
-                            title="Modifier le pourcentage"
-                          >
-                            {project.progressPercentage}%
-                          </button>
-                        ) : (
-                          <span className="font-bold text-sky-400 tabular-nums">
-                            {project.progressPercentage}%
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
-                        <div
-                          className={`h-full rounded-full transition-all duration-300 ${
-                            project.progressPercentage === 100 ? 'bg-emerald-500' : 'bg-sky-500'
-                          }`}
-                          style={{ width: `${project.progressPercentage}%` }}
-                        />
-                      </div>
+                    {/* Sélecteur de vue : Grille vs CRM Groupé */}
+                    <div className="flex items-center bg-slate-950 border border-slate-800 rounded p-0.5">
+                      <button
+                        onClick={() => setProjectViewGroup('grid')}
+                        className={`px-2.5 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                          projectViewGroup === 'grid'
+                            ? 'bg-slate-800 text-white'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        Grille
+                      </button>
+                      <button
+                        onClick={() => setProjectViewGroup('crm')}
+                        className={`px-2.5 py-0.5 rounded text-[11px] font-medium transition-colors flex items-center gap-1 ${
+                          projectViewGroup === 'crm'
+                            ? 'bg-sky-950 text-sky-300 border border-sky-800/50'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Briefcase className="w-3 h-3 text-sky-400" />
+                        <span>Vue CRM (Client)</span>
+                      </button>
                     </div>
-                  </div>
-                ))
-              )}
+                  </>
+                )}
+              </div>
+
+              <div className="text-[11px] text-slate-500">
+                {isAdmin
+                  ? 'Cliquez sur une carte pour gérer les actions & la feuille de route'
+                  : 'Consultez la feuille de route et validez les actions qui vous sont assignées'}
+              </div>
             </div>
+
+            {/* VUE 1 : VUE CRM GROUPÉE PAR CLIENT (ADMIN) */}
+            {isAdmin && projectViewGroup === 'crm' ? (
+              <div className="space-y-6">
+                {clientsList
+                  .filter((c) => c.role === 'client')
+                  .filter((c) => projectClientFilter === 'all' || c.id === projectClientFilter)
+                  .map((client) => {
+                    const clientProjects = projects.filter((p) => p.clientId === client.id);
+                    const avgProgress = clientProjects.length > 0
+                      ? Math.round(
+                          clientProjects.reduce((acc, p) => acc + (p.progressPercentage || 0), 0) /
+                            clientProjects.length
+                        )
+                      : 0;
+
+                    return (
+                      <div
+                        key={client.id}
+                        className="bg-slate-900/50 border border-slate-800 rounded-lg p-5 space-y-4"
+                      >
+                        {/* En-tête de fiche client CRM */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800/80 gap-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-lg bg-sky-950/80 border border-sky-800/50 flex items-center justify-center text-sky-300 font-bold text-xs uppercase">
+                              {client.companyName.substring(0, 2)}
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className="text-sm font-bold text-white">{client.companyName}</h3>
+                                <span className="text-[11px] text-slate-400 font-normal">
+                                  ({client.name})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                                <span className="font-mono">{client.email}</span>
+                                <span>·</span>
+                                <span>
+                                  {clientProjects.length} projet{clientProjects.length > 1 ? 's' : ''} rattaché{clientProjects.length > 1 ? 's' : ''}
+                                </span>
+                                {clientProjects.length > 0 && (
+                                  <>
+                                    <span>·</span>
+                                    <span className="text-sky-400 font-medium">Avancement global : {avgProgress}%</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleQuickCreateForClient(client.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-950 bg-white hover:bg-slate-200 rounded transition-colors self-start sm:self-auto"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>Nouveau projet pour ce client</span>
+                          </button>
+                        </div>
+
+                        {/* Liste des projets du client */}
+                        {clientProjects.length === 0 ? (
+                          <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-800/60 rounded-md">
+                            Aucun projet actif pour ce client.{' '}
+                            <button
+                              onClick={() => handleQuickCreateForClient(client.id)}
+                              className="text-sky-400 underline hover:text-sky-300 ml-1"
+                            >
+                              Créer un premier projet
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                            {clientProjects.map((project) => {
+                              const actionsCount = project.actions?.length || 0;
+                              const completedCount = (project.actions || []).filter((a) => a.status === 'completed').length;
+                              const hasClientActionPending = (project.actions || []).some(
+                                (a) => a.assignedTo === 'client' && a.status !== 'completed'
+                              );
+
+                              return (
+                                <div
+                                  key={project.id}
+                                  onClick={() => setSelectedProject(project)}
+                                  className="bg-slate-950/80 border border-slate-800 hover:border-slate-700 rounded-lg p-4 flex flex-col justify-between space-y-3 cursor-pointer group transition-all hover:bg-slate-950"
+                                >
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between text-[11px] text-slate-400">
+                                      <span className="font-mono text-slate-500">{project.id}</span>
+                                      <span
+                                        className={`px-1.5 py-0.5 rounded text-[10px] font-medium capitalize ${
+                                          project.status === 'completed'
+                                            ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                                            : project.status === 'on_hold'
+                                            ? 'bg-amber-950 text-amber-300 border border-amber-800/60'
+                                            : 'bg-sky-950 text-sky-300 border border-sky-800/60'
+                                        }`}
+                                      >
+                                        {project.status === 'completed'
+                                          ? 'Terminé'
+                                          : project.status === 'on_hold'
+                                          ? 'En pause'
+                                          : 'En cours'}
+                                      </span>
+                                    </div>
+
+                                    <h4 className="text-xs font-semibold text-white group-hover:text-sky-400 transition-colors line-clamp-1">
+                                      {project.title}
+                                    </h4>
+
+                                    <p className="text-[11px] text-slate-400 line-clamp-2 leading-relaxed">
+                                      {project.description}
+                                    </p>
+                                  </div>
+
+                                  <div className="space-y-2 pt-2 border-t border-slate-900">
+                                    <div className="flex items-center justify-between text-[11px]">
+                                      <span className="text-slate-400 flex items-center gap-1">
+                                        <ListTodo className="w-3 h-3 text-slate-500" />
+                                        <span>{completedCount}/{actionsCount} actions</span>
+                                      </span>
+                                      <span className="font-bold text-sky-400 tabular-nums">
+                                        {project.progressPercentage}%
+                                      </span>
+                                    </div>
+
+                                    <div className="w-full h-1.5 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                                      <div
+                                        className={`h-full rounded-full transition-all duration-300 ${
+                                          project.progressPercentage === 100 ? 'bg-emerald-500' : 'bg-sky-500'
+                                        }`}
+                                        style={{ width: `${project.progressPercentage}%` }}
+                                      />
+                                    </div>
+
+                                    {hasClientActionPending && (
+                                      <div className="text-[10px] text-amber-300 bg-amber-950/40 border border-amber-900/60 px-2 py-0.5 rounded flex items-center gap-1">
+                                        <AlertCircle className="w-3 h-3 text-amber-400 shrink-0" />
+                                        <span>Action client requise</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
+            ) : (
+              /* VUE 2 : GRILLE GLOBALE DES PROJETS */
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {projects
+                  .filter((p) => {
+                    if (!isAdmin) return true;
+                    if (projectClientFilter === 'all') return true;
+                    return p.clientId === projectClientFilter;
+                  })
+                  .map((project) => {
+                    const actionsCount = project.actions?.length || 0;
+                    const completedCount = (project.actions || []).filter((a) => a.status === 'completed').length;
+                    const hasClientActionPending = (project.actions || []).some(
+                      (a) => a.assignedTo === 'client' && a.status !== 'completed'
+                    );
+
+                    return (
+                      <div
+                        key={project.id}
+                        className="bg-slate-900/60 border border-slate-800 hover:border-slate-700 rounded-lg p-5 flex flex-col justify-between space-y-4 transition-colors"
+                      >
+                        <div className="space-y-3">
+                          {/* Badge client & statut */}
+                          <div className="flex items-center justify-between text-xs text-slate-400 gap-2">
+                            <span className="font-mono text-[11px] text-slate-500">{project.id}</span>
+                            {isAdmin && project.clientCompany && (
+                              <button
+                                onClick={() => {
+                                  setProjectClientFilter(project.clientId);
+                                  setProjectViewGroup('crm');
+                                }}
+                                className="text-sky-300 hover:underline font-medium truncate max-w-[150px] text-left text-xs"
+                                title="Filtrer sur ce client"
+                              >
+                                {project.clientCompany}
+                              </button>
+                            )}
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-medium capitalize shrink-0 ${
+                                project.status === 'completed'
+                                  ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                                  : project.status === 'on_hold'
+                                  ? 'bg-amber-950 text-amber-300 border border-amber-800/60'
+                                  : 'bg-sky-950 text-sky-300 border border-sky-800/60'
+                              }`}
+                            >
+                              {project.status === 'completed'
+                                ? 'Terminé'
+                                : project.status === 'on_hold'
+                                ? 'En pause'
+                                : 'En cours'}
+                            </span>
+                          </div>
+
+                          {/* Titre et description */}
+                          <div className="space-y-1">
+                            <h3 className="text-sm font-semibold text-white leading-snug">
+                              {project.title}
+                            </h3>
+                            <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                              {project.description}
+                            </p>
+                          </div>
+
+                          {/* Métadonnées : Échéance & Budget */}
+                          <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400 pt-1">
+                            {project.targetDate && (
+                              <div className="flex items-center gap-1">
+                                <Calendar className="w-3 h-3 text-slate-500" />
+                                <span>Échéance : {new Date(project.targetDate).toLocaleDateString('fr-FR')}</span>
+                              </div>
+                            )}
+                            {isAdmin && project.budget && (
+                              <div className="flex items-center gap-1 text-slate-300">
+                                <DollarSign className="w-3 h-3 text-emerald-500" />
+                                <span>{project.budget}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Avancement et actions */}
+                        <div className="space-y-3 pt-3 border-t border-slate-800/80">
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-slate-400 flex items-center gap-1.5">
+                                <ListTodo className="w-3.5 h-3.5 text-slate-500" />
+                                <span>
+                                  {completedCount}/{actionsCount} action{actionsCount > 1 ? 's' : ''} réalisée{completedCount > 1 ? 's' : ''}
+                                </span>
+                              </span>
+                              <span className="font-bold text-sky-400 tabular-nums">
+                                {project.progressPercentage}%
+                              </span>
+                            </div>
+
+                            <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${
+                                  project.progressPercentage === 100 ? 'bg-emerald-500' : 'bg-sky-500'
+                                }`}
+                                style={{ width: `${project.progressPercentage}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Alerte si le client a une action en attente */}
+                          {hasClientActionPending && (
+                            <div className="p-2 rounded text-[11px] bg-amber-950/40 border border-amber-900/60 text-amber-200 flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                <span>Action requise du client</span>
+                              </div>
+                              <button
+                                onClick={() => setSelectedProject(project)}
+                                className="text-[10px] text-amber-300 font-semibold underline hover:text-white"
+                              >
+                                Voir
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Bouton pour ouvrir la feuille de route & boutons admin */}
+                          <div className="flex items-center justify-between pt-1">
+                            <button
+                              onClick={() => setSelectedProject(project)}
+                              className="flex items-center gap-1 text-xs text-sky-400 hover:text-sky-300 font-medium"
+                            >
+                              <span>Feuille de route & actions</span>
+                              <ArrowRight className="w-3 h-3" />
+                            </button>
+
+                            {isAdmin && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleOpenEditProject(project)}
+                                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors"
+                                  title="Modifier le projet (CRM)"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteProject(project.id)}
+                                  className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-800 rounded transition-colors"
+                                  title="Supprimer le projet"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </div>
         )}
 
@@ -1188,39 +1711,93 @@ export const Dashboard: React.FC = () => {
                     <th className="py-3 px-4">Contact</th>
                     <th className="py-3 px-4">Entreprise</th>
                     <th className="py-3 px-4">Identifiant / Email</th>
+                    <th className="py-3 px-4">Projets rattachés (CRM)</th>
                     <th className="py-3 px-4">1ère Connexion</th>
                     <th className="py-3 px-4">Statut</th>
-                    <th className="py-3 px-4">Création</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                  {clientsList.map((client) => (
-                    <tr key={client.id} className="hover:bg-slate-900/40 transition-colors">
-                      <td className="py-3 px-4 font-medium text-white flex items-center gap-1.5">
-                        <span>{client.name}</span>
-                        {client.role === 'admin' && (
-                          <span className="text-[10px] text-sky-400 font-mono bg-sky-950 px-1 rounded">Admin</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-slate-400">{client.companyName}</td>
-                      <td className="py-3 px-4 font-mono text-slate-400">{client.email}</td>
-                      <td className="py-3 px-4">
-                        {client.mustChangePassword ? (
-                          <span className="text-amber-300 text-[11px] font-medium">Mot de passe à changer</span>
-                        ) : (
-                          <span className="text-slate-400 text-[11px]">Défini</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="text-emerald-400 font-medium capitalize">
-                          {client.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-slate-400">
-                        {new Date(client.createdAt).toLocaleDateString('fr-FR')}
-                      </td>
-                    </tr>
-                  ))}
+                  {clientsList.map((client) => {
+                    const clientProjects = projects.filter((p) => p.clientId === client.id);
+
+                    return (
+                      <tr key={client.id} className="hover:bg-slate-900/40 transition-colors">
+                        <td className="py-3 px-4 font-medium text-white flex items-center gap-1.5">
+                          <span>{client.name}</span>
+                          {client.role === 'admin' && (
+                            <span className="text-[10px] text-sky-400 font-mono bg-sky-950 px-1 rounded">Admin</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-slate-300 font-medium">{client.companyName}</td>
+                        <td className="py-3 px-4 font-mono text-slate-400">{client.email}</td>
+                        <td className="py-3 px-4">
+                          {client.role === 'client' ? (
+                            clientProjects.length > 0 ? (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {clientProjects.map((cp) => (
+                                  <button
+                                    key={cp.id}
+                                    onClick={() => setSelectedProject(cp)}
+                                    className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 hover:border-sky-500/80 text-[11px] flex items-center gap-1.5 group transition-colors"
+                                    title="Voir la feuille de route"
+                                  >
+                                    <span className="text-white group-hover:text-sky-300 max-w-[120px] truncate">
+                                      {cp.title}
+                                    </span>
+                                    <span className="font-bold text-sky-400 text-[10px] tabular-nums">
+                                      {cp.progressPercentage}%
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <span className="text-slate-600 italic text-[11px]">Aucun projet</span>
+                            )
+                          ) : (
+                            <span className="text-slate-600 text-[11px]">Compte Admin</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          {client.mustChangePassword ? (
+                            <span className="text-amber-300 text-[11px] font-medium">À définir</span>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">Défini</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="text-emerald-400 font-medium capitalize">
+                            {client.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          {client.role === 'client' && (
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => handleQuickCreateForClient(client.id)}
+                                className="px-2 py-1 bg-sky-950 hover:bg-sky-900 border border-sky-800/60 text-sky-300 rounded text-[11px] font-medium transition-colors flex items-center gap-1"
+                                title="Créer un nouveau projet pour ce client"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Projet</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setProjectClientFilter(client.id);
+                                  setProjectViewGroup('crm');
+                                  setActiveTab('projects');
+                                }}
+                                className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] font-medium transition-colors"
+                                title="Filtrer l'onglet projets"
+                              >
+                                Filtrer
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -1401,7 +1978,30 @@ export const Dashboard: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Avancement (%)</label>
+                  <label className="block font-medium text-slate-300 mb-1">Date d'échéance cible</label>
+                  <input
+                    type="date"
+                    value={newProjectTargetDate}
+                    onChange={(e) => setNewProjectTargetDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Budget prévisionnel</label>
+                  <input
+                    type="text"
+                    value={newProjectBudget}
+                    onChange={(e) => setNewProjectBudget(e.target.value)}
+                    placeholder="Ex: 3 500 € HT"
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Avancement initial (%)</label>
                   <input
                     type="number"
                     min="0"
@@ -1413,7 +2013,7 @@ export const Dashboard: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-medium text-slate-300 mb-1">Statut</label>
+                  <label className="block font-medium text-slate-300 mb-1">Statut initial</label>
                   <select
                     value={newProjectStatus}
                     onChange={(e) => setNewProjectStatus(e.target.value as Project['status'])}
@@ -1658,8 +2258,541 @@ export const Dashboard: React.FC = () => {
       )}
 
       {/* =========================================================================
-          FOOTER MINIMALISTE & SOBRE
+          MODAL 5 : FEUILLE DE ROUTE & ACTIONS D'UN PROJET (STRUCTURE DÉTAILLÉE)
           ========================================================================= */}
+      {selectedProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl max-w-3xl w-full p-6 space-y-6 shadow-2xl my-8">
+            {/* En-tête du modal */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between pb-4 border-b border-slate-800 gap-4">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-mono text-slate-500 font-semibold">{selectedProject.id}</span>
+                  <span className="text-slate-700">·</span>
+                  <span className="text-sky-300 font-medium">
+                    {selectedProject.clientCompany || 'Client'} ({selectedProject.clientName})
+                  </span>
+                  <span className="text-slate-700">·</span>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[11px] font-medium capitalize ${
+                      selectedProject.status === 'completed'
+                        ? 'bg-emerald-950 text-emerald-300 border border-emerald-800/60'
+                        : selectedProject.status === 'on_hold'
+                        ? 'bg-amber-950 text-amber-300 border border-amber-800/60'
+                        : 'bg-sky-950 text-sky-300 border border-sky-800/60'
+                    }`}
+                  >
+                    {selectedProject.status === 'completed'
+                      ? 'Terminé'
+                      : selectedProject.status === 'on_hold'
+                      ? 'En pause'
+                      : 'En cours'}
+                  </span>
+                </div>
+
+                <h2 className="text-lg font-bold text-white leading-tight">
+                  {selectedProject.title}
+                </h2>
+
+                <p className="text-xs text-slate-400 leading-relaxed max-w-2xl">
+                  {selectedProject.description}
+                </p>
+
+                {/* Métadonnées : Échéance & Budget */}
+                <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 pt-1">
+                  {selectedProject.targetDate && (
+                    <div className="flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                      <span>Échéance cible : <strong className="text-slate-200">{new Date(selectedProject.targetDate).toLocaleDateString('fr-FR')}</strong></span>
+                    </div>
+                  )}
+                  {selectedProject.budget && (
+                    <div className="flex items-center gap-1.5 text-slate-300">
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Budget prévisionnel : <strong className="text-white">{selectedProject.budget}</strong></span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 self-start">
+                {isAdmin && (
+                  <>
+                    <button
+                      onClick={() => handleOpenEditProject(selectedProject)}
+                      className="p-1.5 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded transition-colors text-xs flex items-center gap-1 px-2.5"
+                      title="Modifier les informations du projet"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Modifier</span>
+                    </button>
+                    <button
+                      onClick={() => handleDeleteProject(selectedProject.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-400 bg-slate-800/80 hover:bg-slate-700 rounded transition-colors text-xs"
+                      title="Supprimer ce projet"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setSelectedProject(null)}
+                  className="p-1.5 text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 rounded transition-colors"
+                  title="Fermer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Jauge d'avancement & Mesure du progrès */}
+            <div className="bg-slate-950/60 border border-slate-800 rounded-lg p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between text-xs gap-2">
+                <div>
+                  <span className="font-semibold text-white">Progression globale du chantier</span>
+                  <span className="text-slate-400 ml-2">
+                    ({(selectedProject.actions || []).filter((a) => a.status === 'completed').length} / {selectedProject.actions?.length || 0} actions validées)
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-xl font-bold text-sky-400 tabular-nums">
+                    {selectedProject.progressPercentage}%
+                  </span>
+                  {isAdmin && (
+                    <button
+                      onClick={() => handleUpdateProgress(selectedProject.id, selectedProject.progressPercentage)}
+                      className="text-[11px] text-slate-400 hover:text-sky-300 underline"
+                      title="Forcer manuellement le pourcentage"
+                    >
+                      Ajuster %
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    selectedProject.progressPercentage === 100 ? 'bg-emerald-500' : 'bg-sky-500'
+                  }`}
+                  style={{ width: `${selectedProject.progressPercentage}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Section FEUILLE DE ROUTE & CHECKLIST DES ACTIONS */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <ListTodo className="w-4 h-4 text-sky-400" />
+                    <span>Feuille de route & Checklist des actions</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {isAdmin
+                      ? 'Cochez les jalons terminés pour actualiser l\'avancement, ou ajoutez de nouvelles étapes.'
+                      : 'Cochez les actions qui vous sont assignées une fois réalisées (ex: fourniture d\'accès, validation).'}
+                  </p>
+                </div>
+
+                <span className="text-xs text-slate-500">
+                  {selectedProject.actions?.length || 0} étape{(selectedProject.actions?.length || 0) > 1 ? 's' : ''}
+                </span>
+              </div>
+
+              {/* Liste interactive des actions */}
+              <div className="space-y-2.5">
+                {(selectedProject.actions || []).length === 0 ? (
+                  <div className="p-6 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-lg">
+                    Aucune action définie pour ce projet. {isAdmin && 'Utilisez le formulaire ci-dessous pour créer la première étape.'}
+                  </div>
+                ) : (
+                  selectedProject.actions.map((action: ProjectAction, index: number) => {
+                    const isCompleted = action.status === 'completed';
+                    const canToggle = isAdmin || (user?.role === 'client' && action.assignedTo === 'client');
+
+                    return (
+                      <div
+                        key={action.id}
+                        className={`p-3 rounded-lg border transition-all flex items-start gap-3 ${
+                          isCompleted
+                            ? 'bg-slate-950/40 border-slate-800/60 opacity-80'
+                            : 'bg-slate-950/80 border-slate-800 hover:border-slate-700'
+                        }`}
+                      >
+                        {/* Checkbox interactive */}
+                        <button
+                          type="button"
+                          disabled={!canToggle}
+                          onClick={() => handleToggleAction(selectedProject.id, action.id)}
+                          className={`mt-0.5 p-0.5 rounded transition-colors ${
+                            canToggle
+                              ? 'cursor-pointer hover:scale-110'
+                              : 'cursor-not-allowed opacity-60'
+                          }`}
+                          title={
+                            canToggle
+                              ? isCompleted
+                                ? 'Marquer comme à faire'
+                                : 'Marquer comme terminée'
+                              : 'Cette action est prise en charge par Matt Konnect'
+                          }
+                        >
+                          {isCompleted ? (
+                            <CheckSquare className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <Square className="w-4 h-4 text-slate-500 hover:text-sky-400" />
+                          )}
+                        </button>
+
+                        {/* Contenu de l'action */}
+                        <div className="flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span
+                              className={`text-xs font-medium leading-snug ${
+                                isCompleted ? 'line-through text-slate-400' : 'text-white'
+                              }`}
+                            >
+                              <span className="font-mono text-slate-500 text-[11px] mr-1.5">
+                                #{index + 1}
+                              </span>
+                              {action.title}
+                            </span>
+
+                            <div className="flex items-center gap-2">
+                              {/* Badge d'assignation */}
+                              {action.assignedTo === 'client' ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-950 text-amber-300 border border-amber-800/60 flex items-center gap-1">
+                                  <AlertCircle className="w-3 h-3 text-amber-400" />
+                                  <span>Action Client</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-950 text-sky-300 border border-sky-800/60 flex items-center gap-1">
+                                  <span>Matt Konnect</span>
+                                </span>
+                              )}
+
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteAction(selectedProject.id, action.id)}
+                                  className="text-slate-500 hover:text-red-400 p-0.5 transition-colors"
+                                  title="Supprimer cette action"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {action.description && (
+                            <p className="text-[11px] text-slate-400 leading-relaxed">
+                              {action.description}
+                            </p>
+                          )}
+
+                          <div className="flex flex-wrap items-center gap-3 text-[10px] text-slate-500 pt-0.5">
+                            {action.dueDate && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-slate-500" />
+                                <span>Date cible : {new Date(action.dueDate).toLocaleDateString('fr-FR')}</span>
+                              </span>
+                            )}
+                            {action.completedAt && (
+                              <span className="flex items-center gap-1 text-emerald-400">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                                <span>Validé le {new Date(action.completedAt).toLocaleDateString('fr-FR')}</span>
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Formulaire Admin d'ajout rapide d'une action */}
+              {isAdmin && (
+                <form
+                  onSubmit={(e) => handleAddAction(e, selectedProject.id)}
+                  className="bg-slate-950/60 border border-slate-800/80 rounded-lg p-3.5 space-y-3 text-xs"
+                >
+                  <div className="flex items-center gap-1.5 font-semibold text-white">
+                    <Plus className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Ajouter une action à la feuille de route</span>
+                  </div>
+
+                  {actionError && (
+                    <div className="p-2 rounded text-xs bg-red-950/40 border border-red-900/60 text-red-300 flex items-center gap-2">
+                      <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                      <span>{actionError}</span>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                    <div className="sm:col-span-6">
+                      <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                        Intitulé de l'action / Jalon
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={newActionTitle}
+                        onChange={(e) => setNewActionTitle(e.target.value)}
+                        placeholder="Ex: Validation de la maquette par le client"
+                        className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 text-xs"
+                      />
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                        Assigné à
+                      </label>
+                      <select
+                        value={newActionAssignedTo}
+                        onChange={(e) => setNewActionAssignedTo(e.target.value as 'admin' | 'client')}
+                        className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-white focus:outline-none focus:border-sky-500 text-xs"
+                      >
+                        <option value="admin">Matt Konnect (Agence)</option>
+                        <option value="client">Action Requise Client</option>
+                      </select>
+                    </div>
+
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                        Date cible (optionnel)
+                      </label>
+                      <input
+                        type="date"
+                        value={newActionDueDate}
+                        onChange={(e) => setNewActionDueDate(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-white focus:outline-none focus:border-sky-500 text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-300 mb-1">
+                      Consigne ou détail complémentaire (optionnel)
+                    </label>
+                    <input
+                      type="text"
+                      value={newActionDescription}
+                      onChange={(e) => setNewActionDescription(e.target.value)}
+                      placeholder="Ex: Fournir les accès SFTP o2switch ou valider le BAT"
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 text-xs"
+                    />
+                  </div>
+
+                  <div className="flex justify-end pt-1">
+                    <button
+                      type="submit"
+                      disabled={isAddingAction || !newActionTitle.trim()}
+                      className="px-3.5 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded font-medium text-xs flex items-center gap-1.5 transition-colors"
+                    >
+                      {isAddingAction ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Plus className="w-3 h-3" />
+                      )}
+                      <span>Ajouter à la feuille de route</span>
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+
+            {/* Documents & Livrables associés au client / projet */}
+            <div className="space-y-3 pt-3 border-t border-slate-800">
+              <div className="flex items-center justify-between text-xs">
+                <h4 className="font-semibold text-white flex items-center gap-1.5">
+                  <FileText className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Documents & Livrables rattachés au dossier</span>
+                </h4>
+                <button
+                  onClick={() => {
+                    setSelectedProject(null);
+                    setActiveTab('documents');
+                  }}
+                  className="text-sky-400 hover:underline text-[11px]"
+                >
+                  Voir tous les documents
+                </button>
+              </div>
+
+              {documents.filter((d) => d.clientId === selectedProject.clientId).length === 0 ? (
+                <p className="text-[11px] text-slate-500 italic">
+                  Aucun document déposé pour ce dossier pour le moment.
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {documents
+                    .filter((d) => d.clientId === selectedProject.clientId)
+                    .map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="p-2.5 rounded bg-slate-950 border border-slate-800 flex items-center justify-between gap-2"
+                      >
+                        <div className="truncate text-xs">
+                          <div className="font-medium text-slate-200 truncate">{doc.title}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {getCategoryLabel(doc.category)} · {formatFileSize(doc.fileSize)}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleDownload(doc.id, doc.title)}
+                          className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition-colors shrink-0"
+                          title="Télécharger"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          MODAL 6 : ÉDITION COMPLÈTE D'UN PROJET (EXCLUSIF ADMIN)
+          ========================================================================= */}
+      {editingProject && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-800 rounded-lg max-w-lg w-full p-6 space-y-4 shadow-2xl my-8">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2 text-white font-semibold text-sm">
+                <Edit3 className="w-4 h-4 text-sky-400" />
+                <span>Modifier le projet ({editingProject.id})</span>
+              </div>
+              <button
+                onClick={() => setEditingProject(null)}
+                className="text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {projectEditError && (
+              <div className="p-2.5 rounded text-xs bg-red-950/40 border border-red-900/60 text-red-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <span>{projectEditError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveProjectSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Client rattaché (CRM)</label>
+                <select
+                  required
+                  value={editProjectClientId}
+                  onChange={(e) => setEditProjectClientId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                >
+                  {clientsList
+                    .filter((c) => c.role === 'client')
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.companyName} — {c.name} ({c.email})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Titre du projet</label>
+                <input
+                  type="text"
+                  required
+                  value={editProjectTitle}
+                  onChange={(e) => setEditProjectTitle(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div>
+                <label className="block font-medium text-slate-300 mb-1">Description des travaux</label>
+                <textarea
+                  required
+                  rows={3}
+                  value={editProjectDescription}
+                  onChange={(e) => setEditProjectDescription(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Date d'échéance cible</label>
+                  <input
+                    type="date"
+                    value={editProjectTargetDate}
+                    onChange={(e) => setEditProjectTargetDate(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Budget prévisionnel</label>
+                  <input
+                    type="text"
+                    value={editProjectBudget}
+                    onChange={(e) => setEditProjectBudget(e.target.value)}
+                    placeholder="Ex: 4 500 € HT"
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Avancement (%)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={editProjectProgress}
+                    onChange={(e) => setEditProjectProgress(Number(e.target.value))}
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white tabular-nums focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-slate-300 mb-1">Statut du chantier</label>
+                  <select
+                    value={editProjectStatus}
+                    onChange={(e) => setEditProjectStatus(e.target.value as Project['status'])}
+                    className="w-full bg-slate-950 border border-slate-800 rounded p-2 text-white focus:outline-none focus:border-sky-500"
+                  >
+                    <option value="in_progress">En cours</option>
+                    <option value="completed">Terminé</option>
+                    <option value="on_hold">En pause</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-3 flex justify-end gap-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingProject(null)}
+                  className="px-3 py-1.5 text-slate-400 hover:text-white"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProject}
+                  className="px-4 py-2 font-semibold bg-sky-600 hover:bg-sky-500 text-white rounded transition-colors disabled:opacity-50"
+                >
+                  {isSavingProject ? 'Enregistrement...' : 'Enregistrer les modifications'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       <footer className="border-t border-slate-900 bg-slate-950 px-6 py-4 mt-8">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-3">
           <div>

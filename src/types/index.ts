@@ -20,6 +20,16 @@ export interface Client {
 
 export type ProjectStatus = 'in_progress' | 'completed' | 'on_hold';
 
+export interface ProjectAction {
+  id: string;
+  title: string;
+  description?: string;
+  status: 'todo' | 'in_progress' | 'completed';
+  assignedTo: 'admin' | 'client';
+  dueDate?: string;
+  completedAt?: string;
+}
+
 export interface Project {
   id: string;
   clientId: string;
@@ -29,6 +39,9 @@ export interface Project {
   description: string;
   status: ProjectStatus;
   progressPercentage: number;
+  targetDate?: string; // Date d'échéance / jalon final
+  budget?: string; // Budget ou forfait
+  actions: ProjectAction[]; // Liste des actions et jalons constitutifs
   createdAt: string;
   updatedAt?: string;
   deliverablesCount?: number;

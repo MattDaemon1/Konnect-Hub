@@ -60,10 +60,37 @@ export const projects = mysqlTable(
       .default('in_progress')
       .notNull(),
     progressPercentage: int('progress_percentage').default(0).notNull(),
+    targetDate: varchar('target_date', { length: 32 }), // Date d'échéance / jalon
+    budget: varchar('budget', { length: 64 }), // Budget ou forfait
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table: any) => ({
     clientIdx: index('projects_client_id_idx').on(table.clientId),
+  })
+);
+
+// ==========================================
+// 2bis. TABLE DES ACTIONS & JALONS DE PROJET
+// ==========================================
+export const projectActions = mysqlTable(
+  'project_actions',
+  {
+    id: varchar('id', { length: 36 }).primaryKey(),
+    projectId: varchar('project_id', { length: 36 })
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    title: varchar('title', { length: 255 }).notNull(),
+    description: text('description'),
+    status: mysqlEnum('status', ['todo', 'in_progress', 'completed']).default('todo').notNull(),
+    assignedTo: mysqlEnum('assigned_to', ['admin', 'client']).default('admin').notNull(),
+    dueDate: varchar('due_date', { length: 32 }),
+    completedAt: timestamp('completed_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table: any) => ({
+    projectIdx: index('project_actions_project_id_idx').on(table.projectId),
+    statusIdx: index('project_actions_status_idx').on(table.status),
+    assignedIdx: index('project_actions_assigned_idx').on(table.assignedTo),
   })
 );
 
@@ -162,10 +189,29 @@ CREATE TABLE IF NOT EXISTS \`projects\` (
   \`description\` TEXT NOT NULL,
   \`status\` ENUM('in_progress', 'completed', 'on_hold') NOT NULL DEFAULT 'in_progress',
   \`progress_percentage\` INT NOT NULL DEFAULT 0,
+  \`target_date\` VARCHAR(32) DEFAULT NULL COMMENT 'Date d échéance / jalon de livraison',
+  \`budget\` VARCHAR(64) DEFAULT NULL COMMENT 'Budget ou forfait',
   \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (\`id\`),
   KEY \`idx_projects_client\` (\`client_id\`),
   CONSTRAINT \`fk_projects_client\` FOREIGN KEY (\`client_id\`) REFERENCES \`clients\` (\`id\`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS \`project_actions\` (
+  \`id\` VARCHAR(36) NOT NULL,
+  \`project_id\` VARCHAR(36) NOT NULL,
+  \`title\` VARCHAR(255) NOT NULL,
+  \`description\` TEXT DEFAULT NULL,
+  \`status\` ENUM('todo', 'in_progress', 'completed') NOT NULL DEFAULT 'todo',
+  \`assigned_to\` ENUM('admin', 'client') NOT NULL DEFAULT 'admin',
+  \`due_date\` VARCHAR(32) DEFAULT NULL,
+  \`completed_at\` DATETIME DEFAULT NULL,
+  \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (\`id\`),
+  KEY \`idx_project_actions_project\` (\`project_id\`),
+  KEY \`idx_project_actions_status\` (\`status\`),
+  KEY \`idx_project_actions_assigned\` (\`assigned_to\`),
+  CONSTRAINT \`fk_project_actions_project\` FOREIGN KEY (\`project_id\`) REFERENCES \`projects\` (\`id\`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS \`documents\` (

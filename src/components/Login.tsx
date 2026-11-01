@@ -1,20 +1,18 @@
 /**
  * @file Login.tsx
- * @description Page de connexion My Konnect pour Clients et Administrateurs
- * Propose deux méthodes d'authentification :
- * 1. Identifiants classiques (Email / Identifiant + Mot de passe sécurisé bcrypt)
- * 2. Lien magique (Magic Link sécurisé à usage unique)
- * Interface sobre, professionnelle, exempte de superflu.
+ * @description Page de connexion UNIQUE My Konnect (Clients & Administrateurs réunis)
+ * - 1 SEUL formulaire de connexion universel (pas de séparation artificielle client/admin)
+ * - Détection automatique du rôle (client ou admin) à la connexion
+ * - Deux méthodes d'authentification : Identifiants & Mot de passe OU Lien magique (Magic Link)
+ * - Formulaire intégré de création de compte client (inscription directe sans session préalable)
+ * - Logo officiel Matt Konnect (mattkonnect.com)
  */
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { useNavigate } from 'react-router-dom';
-import { UserRole } from '../types/index.ts';
 import { MattKonnectLogo } from './MattKonnectLogo.tsx';
 import {
-  Lock,
-  Mail,
   ArrowRight,
   Eye,
   EyeOff,
@@ -23,8 +21,8 @@ import {
   AlertCircle,
   Inbox,
   CheckCircle2,
-  Shield,
-  UserCheck,
+  UserPlus,
+  LogIn,
 } from 'lucide-react';
 
 interface SentEmailItem {
@@ -35,20 +33,30 @@ interface SentEmailItem {
   magicLinkUrl?: string;
 }
 
+type AuthMode = 'login' | 'register';
+type LoginMethod = 'password' | 'magic_link';
+
 export const Login: React.FC = () => {
-  const { loginWithPassword, requestMagicLink, error, clearError, isAuthenticated } = useAuth();
+  const { loginWithPassword, register, requestMagicLink, error, clearError, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
-  // Rôle sélectionné : 'client' ou 'admin'
-  const [selectedRole, setSelectedRole] = useState<UserRole>('client');
+  // Mode principal : Connexion ou Inscription (Créer un compte)
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
 
-  // Méthode de connexion : 'password' (par défaut) ou 'magic_link'
-  const [authMethod, setAuthMethod] = useState<'password' | 'magic_link'>('password');
+  // Méthode de connexion : Mot de passe ou Lien magique
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>('password');
 
-  // Champs de saisie
+  // Champs de connexion
   const [email, setEmail] = useState<string>('Matt4Daemon@gmail.com');
   const [password, setPassword] = useState<string>('Client2026!');
   const [showPassword, setShowPassword] = useState<boolean>(false);
+
+  // Champs d'inscription (Créer un compte client)
+  const [regName, setRegName] = useState<string>('');
+  const [regCompany, setRegCompany] = useState<string>('');
+  const [regEmail, setRegEmail] = useState<string>('');
+  const [regPassword, setRegPassword] = useState<string>('');
+  const [showRegPassword, setShowRegPassword] = useState<boolean>(false);
 
   // États de soumission
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
@@ -66,7 +74,7 @@ export const Login: React.FC = () => {
     }
   }, [isAuthenticated, navigate]);
 
-  // Décompte de temporisation
+  // Décompte de temporisation Magic Link
   useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setInterval(() => {
@@ -74,24 +82,6 @@ export const Login: React.FC = () => {
     }, 1000);
     return () => clearInterval(timer);
   }, [cooldown]);
-
-  // Basculer vers le rôle Client
-  const switchToClient = () => {
-    setSelectedRole('client');
-    setEmail('Matt4Daemon@gmail.com');
-    setPassword('Client2026!');
-    setMagicLinkSent(false);
-    clearError();
-  };
-
-  // Basculer vers le rôle Administrateur
-  const switchToAdmin = () => {
-    setSelectedRole('admin');
-    setEmail('admin@mykonnect.fr');
-    setPassword('Admin2026!');
-    setMagicLinkSent(false);
-    clearError();
-  };
 
   const fetchInbox = async () => {
     try {
@@ -105,8 +95,8 @@ export const Login: React.FC = () => {
     }
   };
 
-  // Soumission du formulaire
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Soumission du formulaire unique de connexion
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || isSubmitting) return;
 
@@ -114,14 +104,14 @@ export const Login: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      if (authMethod === 'password') {
-        const success = await loginWithPassword(email.trim(), password, selectedRole);
+      if (loginMethod === 'password') {
+        const success = await loginWithPassword(email.trim(), password);
         if (success) {
           navigate('/', { replace: true });
         }
       } else {
         // Envoi Magic Link
-        const res = await requestMagicLink(email.trim(), selectedRole);
+        const res = await requestMagicLink(email.trim());
         setMagicLinkSent(true);
         setCooldown(45);
         if (res.previewUrl) {
@@ -130,113 +120,86 @@ export const Login: React.FC = () => {
         fetchInbox();
       }
     } catch {
-      // Les erreurs sont propagées dans error
+      // L'erreur est gérée dans AuthContext
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Soumission de la création directe de compte client (sans session requise !)
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regName.trim() || !regCompany.trim() || !regEmail.trim() || !regPassword || isSubmitting) {
+      return;
+    }
+
+    clearError();
+    setIsSubmitting(true);
+
+    try {
+      const success = await register({
+        name: regName.trim(),
+        companyName: regCompany.trim(),
+        email: regEmail.trim(),
+        password: regPassword,
+      });
+
+      if (success) {
+        navigate('/', { replace: true });
+      }
+    } catch {
+      // L'erreur est gérée dans AuthContext
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Raccourcis de pré-remplissage rapide pour tests
+  const fillTestCredentials = (testEmail: string, testPass: string) => {
+    setAuthMode('login');
+    setLoginMethod('password');
+    setEmail(testEmail);
+    setPassword(testPass);
+    setMagicLinkSent(false);
+    clearError();
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-slate-800 selection:text-white">
-      {/* Top Bar Sobre - My Konnect */}
+      {/* Barre supérieure épurée */}
       <header className="border-b border-slate-900 bg-slate-950 px-6 py-4">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <MattKonnectLogo size="md" showSubtitle={true} />
 
-          <div className="flex items-center gap-4 text-xs text-slate-400">
-            <button
-              onClick={() => {
-                fetchInbox();
-                setShowInboxModal(true);
-              }}
-              className="text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5"
-              title="Inspecter les Magic Links envoyés"
-            >
-              <Inbox className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Boîte de réception test</span>
-            </button>
-          </div>
+          <button
+            onClick={() => {
+              fetchInbox();
+              setShowInboxModal(true);
+            }}
+            className="text-xs text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5"
+            title="Inspecter les emails et tokens Magic Link sortants"
+          >
+            <Inbox className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Boîte de réception test</span>
+          </button>
         </div>
       </header>
 
-      {/* Main Viewport */}
-      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-12 flex items-center justify-center">
+      {/* Zone centrale */}
+      <main className="flex-1 max-w-6xl mx-auto w-full px-6 py-10 flex items-center justify-center">
         <div className="w-full max-w-md">
-          {/* Carte Principale de Connexion */}
+          {/* Carte Unique */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-6 sm:p-8 shadow-xl space-y-6">
-            {/* Sélecteur de profil Client / Administrateur */}
-            <div className="flex p-1 bg-slate-950 rounded border border-slate-800 text-xs font-medium">
-              <button
-                type="button"
-                onClick={switchToClient}
-                className={`flex-1 py-2 rounded text-center transition-colors flex items-center justify-center gap-2 ${
-                  selectedRole === 'client'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Espace Client</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={switchToAdmin}
-                className={`flex-1 py-2 rounded text-center transition-colors flex items-center justify-center gap-2 ${
-                  selectedRole === 'admin'
-                    ? 'bg-slate-800 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <Shield className="w-3.5 h-3.5" />
-                <span>Administration</span>
-              </button>
-            </div>
-
             {/* Titre & Sous-titre sobre */}
             <div>
               <h1 className="text-xl font-bold text-white tracking-tight">
-                {selectedRole === 'admin' ? 'Connexion Administrateur' : 'Connexion Espace Client'}
+                {authMode === 'login' ? 'Connexion' : 'Créer un compte'}
               </h1>
               <p className="text-xs text-slate-400 mt-1">
-                {selectedRole === 'admin'
-                  ? 'Gestion des comptes, projets, documents et support My Konnect'
-                  : 'Consultez vos projets, audits, livrables et factures'}
+                {authMode === 'login'
+                  ? 'Accédez à votre espace sécurisé My Konnect (Client ou Administrateur)'
+                  : 'Renseignez vos coordonnées pour accéder à votre portail client'}
               </p>
-            </div>
-
-            {/* Choix de la méthode d'authentification */}
-            <div className="flex border-b border-slate-800 text-xs">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMethod('password');
-                  setMagicLinkSent(false);
-                  clearError();
-                }}
-                className={`pb-2.5 px-3 font-medium transition-colors ${
-                  authMethod === 'password'
-                    ? 'text-white border-b-2 border-sky-400 font-semibold'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Mot de passe
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMethod('magic_link');
-                  setMagicLinkSent(false);
-                  clearError();
-                }}
-                className={`pb-2.5 px-3 font-medium transition-colors ${
-                  authMethod === 'magic_link'
-                    ? 'text-white border-b-2 border-sky-400 font-semibold'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                Lien magique
-              </button>
             </div>
 
             {/* Affichage d'erreur éventuelle */}
@@ -247,211 +210,371 @@ export const Login: React.FC = () => {
               </div>
             )}
 
-            {/* Formulaire : Méthode 1 - Identifiants & Mot de passe */}
-            {authMethod === 'password' && (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label htmlFor="login-email" className="block text-xs font-medium text-slate-300 mb-1.5">
-                    Identifiant / Adresse email
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="login-email"
-                      type="email"
-                      required
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="nom@entreprise.fr"
-                      disabled={isSubmitting}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label htmlFor="login-pwd" className="block text-xs font-medium text-slate-300">
-                      Mot de passe
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setAuthMethod('magic_link')}
-                      className="text-[11px] text-slate-400 hover:text-white underline underline-offset-2"
-                    >
-                      Mot de passe oublié ?
-                    </button>
-                  </div>
-                  <div className="relative">
-                    <input
-                      id="login-pwd"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••••••"
-                      disabled={isSubmitting}
-                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 pr-9 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-                      tabIndex={-1}
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Bouton de soumission */}
-                <button
-                  type="submit"
-                  disabled={isSubmitting || !email.trim() || !password}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-white text-slate-950 hover:bg-slate-200 font-semibold text-xs transition-colors disabled:opacity-50 mt-2"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Connexion en cours...</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Se connecter</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </>
-                  )}
-                </button>
-              </form>
-            )}
-
-            {/* Formulaire : Méthode 2 - Lien Magique sans mot de passe */}
-            {authMethod === 'magic_link' && (
+            {/* ============================================================= */}
+            {/* VUE 1 : FORMULAIRE UNIQUE DE CONNEXION (CLIENT & ADMIN RÉUNIS) */}
+            {/* ============================================================= */}
+            {authMode === 'login' && (
               <div className="space-y-4">
-                {magicLinkSent ? (
-                  <div className="space-y-4">
-                    <div className="p-3.5 bg-emerald-950/40 border border-emerald-900/60 rounded text-xs text-emerald-200 space-y-1.5">
-                      <div className="flex items-center gap-2 font-semibold text-emerald-300">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        Lien magique envoyé !
-                      </div>
-                      <p className="text-emerald-300/80 leading-relaxed">
-                        Un lien de connexion valable 15 minutes a été expédié à <strong className="text-white font-mono">{email}</strong>.
-                      </p>
-                    </div>
+                {/* Méthode d'authentification : Mot de passe ou Lien magique */}
+                <div className="flex border-b border-slate-800 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginMethod('password');
+                      setMagicLinkSent(false);
+                      clearError();
+                    }}
+                    className={`pb-2.5 px-3 font-medium transition-colors ${
+                      loginMethod === 'password'
+                        ? 'text-white border-b-2 border-sky-400 font-semibold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Mot de passe
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLoginMethod('magic_link');
+                      setMagicLinkSent(false);
+                      clearError();
+                    }}
+                    className={`pb-2.5 px-3 font-medium transition-colors ${
+                      loginMethod === 'magic_link'
+                        ? 'text-white border-b-2 border-sky-400 font-semibold'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Lien magique
+                  </button>
+                </div>
 
-                    {previewLink && (
-                      <div className="p-3 bg-slate-950 border border-slate-800 rounded text-xs space-y-2">
-                        <div className="flex items-center justify-between text-slate-400 text-[11px]">
-                          <span className="font-medium text-slate-300 flex items-center gap-1.5">
-                            <Sparkles className="w-3 h-3 text-amber-400" />
-                            Accès direct immédiat (Sandbox) :
-                          </span>
-                        </div>
-                        <a
-                          href={previewLink}
-                          className="inline-flex items-center justify-center w-full gap-2 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded transition-colors"
-                        >
-                          <span>Valider la connexion</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </a>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-1 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setMagicLinkSent(false)}
-                        className="text-slate-400 hover:text-white underline underline-offset-4"
-                      >
-                        Changer d'adresse
-                      </button>
-
-                      {cooldown > 0 ? (
-                        <span className="text-slate-500 tabular-nums">
-                          Renvoyer ({cooldown}s)
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={handleSubmit}
-                          className="text-sky-400 hover:text-sky-300 font-medium"
-                        >
-                          Renvoyer le lien
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Option 1A : Connexion par Identifiant / Mot de passe */}
+                {loginMethod === 'password' && (
+                  <form onSubmit={handleLoginSubmit} className="space-y-4">
                     <div>
-                      <label htmlFor="magic-email" className="block text-xs font-medium text-slate-300 mb-1.5">
-                        Adresse email professionnelle
+                      <label htmlFor="login-email" className="block text-xs font-medium text-slate-300 mb-1.5">
+                        Identifiant / Adresse email
                       </label>
                       <input
-                        id="magic-email"
+                        id="login-email"
                         type="email"
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="nom@entreprise.fr"
+                        placeholder="nom@entreprise.fr ou admin@mykonnect.fr"
                         disabled={isSubmitting}
                         className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
                       />
                     </div>
 
-                    <p className="text-[11px] text-slate-400">
-                      Vous recevrez un email contenant un lien sécurisé à usage unique pour vous connecter sans mot de passe.
-                    </p>
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label htmlFor="login-pwd" className="block text-xs font-medium text-slate-300">
+                          Mot de passe
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setLoginMethod('magic_link');
+                            clearError();
+                          }}
+                          className="text-[11px] text-slate-400 hover:text-white underline underline-offset-2"
+                        >
+                          Mot de passe oublié ?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input
+                          id="login-pwd"
+                          type={showPassword ? 'text' : 'password'}
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="••••••••••••"
+                          disabled={isSubmitting}
+                          className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 pr-9 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                          tabIndex={-1}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
 
                     <button
                       type="submit"
-                      disabled={isSubmitting || !email.trim() || cooldown > 0}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-white text-slate-950 hover:bg-slate-200 font-semibold text-xs transition-colors disabled:opacity-50"
+                      disabled={isSubmitting || !email.trim() || !password}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-white text-slate-950 hover:bg-slate-200 font-semibold text-xs transition-colors disabled:opacity-50 mt-2"
                     >
                       {isSubmitting ? (
                         <>
                           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Génération du jeton...</span>
+                          <span>Connexion en cours...</span>
                         </>
                       ) : (
                         <>
-                          <span>Recevoir mon lien magique</span>
+                          <span>Se connecter</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                         </>
                       )}
                     </button>
                   </form>
                 )}
+
+                {/* Option 1B : Connexion sans mot de passe par Lien Magique */}
+                {loginMethod === 'magic_link' && (
+                  <div className="space-y-4">
+                    {magicLinkSent ? (
+                      <div className="space-y-4">
+                        <div className="p-3.5 bg-emerald-950/40 border border-emerald-900/60 rounded text-xs text-emerald-200 space-y-1.5">
+                          <div className="flex items-center gap-2 font-semibold text-emerald-300">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                            Lien magique envoyé !
+                          </div>
+                          <p className="text-emerald-300/80 leading-relaxed">
+                            Un lien de connexion valable 15 minutes a été envoyé à <strong className="text-white font-mono">{email}</strong>.
+                          </p>
+                        </div>
+
+                        {previewLink && (
+                          <div className="p-3 bg-slate-950 border border-slate-800 rounded text-xs space-y-2">
+                            <span className="font-medium text-slate-300 flex items-center gap-1.5 text-[11px]">
+                              <Sparkles className="w-3 h-3 text-amber-400" />
+                              Accès direct immédiat (Sandbox) :
+                            </span>
+                            <a
+                              href={previewLink}
+                              className="inline-flex items-center justify-center w-full gap-2 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-500 rounded transition-colors"
+                            >
+                              <span>Valider la connexion</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        )}
+
+                        <div className="flex items-center justify-between pt-1 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setMagicLinkSent(false)}
+                            className="text-slate-400 hover:text-white underline underline-offset-4"
+                          >
+                            Changer d'adresse
+                          </button>
+
+                          {cooldown > 0 ? (
+                            <span className="text-slate-500 tabular-nums">
+                              Renvoyer ({cooldown}s)
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={handleLoginSubmit}
+                              className="text-sky-400 hover:text-sky-300 font-medium"
+                            >
+                              Renvoyer le lien
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <form onSubmit={handleLoginSubmit} className="space-y-4">
+                        <div>
+                          <label htmlFor="magic-email" className="block text-xs font-medium text-slate-300 mb-1.5">
+                            Adresse email du compte
+                          </label>
+                          <input
+                            id="magic-email"
+                            type="email"
+                            required
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="nom@entreprise.fr"
+                            disabled={isSubmitting}
+                            className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                          />
+                        </div>
+
+                        <p className="text-[11px] text-slate-400">
+                          Vous recevrez un email contenant un lien sécurisé à usage unique pour vous connecter sans mot de passe.
+                        </p>
+
+                        <button
+                          type="submit"
+                          disabled={isSubmitting || !email.trim() || cooldown > 0}
+                          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-white text-slate-950 hover:bg-slate-200 font-semibold text-xs transition-colors disabled:opacity-50"
+                        >
+                          {isSubmitting ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Génération du lien...</span>
+                            </>
+                          ) : (
+                            <>
+                              <span>Recevoir mon lien magique</span>
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </>
+                          )}
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                )}
+
+                {/* Bascule vers Créer un compte */}
+                <div className="pt-3 border-t border-slate-800 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('register');
+                      clearError();
+                    }}
+                    className="text-xs text-slate-400 hover:text-white transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <UserPlus className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Pas encore de compte ? <strong className="text-sky-400 font-medium underline underline-offset-2">Créer un compte</strong></span>
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Raccourcis de test préremplis (discrets) */}
-            <div className="pt-2 border-t border-slate-800/80">
+            {/* ============================================================= */}
+            {/* VUE 2 : CRÉATION DIRECTE DE COMPTE CLIENT (SANS SESSION REQUISE) */}
+            {/* ============================================================= */}
+            {authMode === 'register' && (
+              <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+                <div>
+                  <label htmlFor="reg-name" className="block text-xs font-medium text-slate-300 mb-1">
+                    Nom & Prénom du contact
+                  </label>
+                  <input
+                    id="reg-name"
+                    type="text"
+                    required
+                    value={regName}
+                    onChange={(e) => setRegName(e.target.value)}
+                    placeholder="Jean Dupont"
+                    disabled={isSubmitting}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="reg-company" className="block text-xs font-medium text-slate-300 mb-1">
+                    Société / Raison sociale
+                  </label>
+                  <input
+                    id="reg-company"
+                    type="text"
+                    required
+                    value={regCompany}
+                    onChange={(e) => setRegCompany(e.target.value)}
+                    placeholder="Dupont Conseil SARL"
+                    disabled={isSubmitting}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="reg-email" className="block text-xs font-medium text-slate-300 mb-1">
+                    Adresse email professionnelle
+                  </label>
+                  <input
+                    id="reg-email"
+                    type="email"
+                    required
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    placeholder="jean.dupont@entreprise.fr"
+                    disabled={isSubmitting}
+                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="reg-password" className="block text-xs font-medium text-slate-300 mb-1">
+                    Mot de passe (6 caractères min)
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="reg-password"
+                      type={showRegPassword ? 'text' : 'password'}
+                      required
+                      minLength={6}
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      disabled={isSubmitting}
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-2 pr-9 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                      tabIndex={-1}
+                    >
+                      {showRegPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || !regName.trim() || !regCompany.trim() || !regEmail.trim() || regPassword.length < 6}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded bg-white text-slate-950 hover:bg-slate-200 font-semibold text-xs transition-colors disabled:opacity-50 mt-3"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Création de votre compte...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Créer mon compte</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+
+                <div className="pt-2 border-t border-slate-800 text-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('login');
+                      clearError();
+                    }}
+                    className="text-xs text-slate-400 hover:text-white transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <LogIn className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Déjà un compte ? <strong className="text-sky-400 font-medium underline underline-offset-2">Se connecter</strong></span>
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Raccourcis de test démo discrets */}
+            <div className="pt-3 border-t border-slate-800/80">
               <div className="text-[11px] text-slate-500 mb-2 font-medium">Comptes de test préconfigurés :</div>
               <div className="grid grid-cols-2 gap-2 text-[11px]">
                 <button
                   type="button"
-                  onClick={switchToClient}
-                  className={`p-2 rounded border text-left transition-colors ${
-                    selectedRole === 'client'
-                      ? 'bg-slate-800/80 border-slate-700 text-slate-200'
-                      : 'bg-slate-950 border-slate-900 text-slate-400 hover:text-slate-300'
-                  }`}
+                  onClick={() => fillTestCredentials('Matt4Daemon@gmail.com', 'Client2026!')}
+                  className="p-2 rounded bg-slate-950 border border-slate-800 text-left hover:border-slate-700 transition-colors"
                 >
-                  <div className="font-semibold text-slate-200">Client Démo</div>
+                  <div className="font-semibold text-slate-300">Client Démo</div>
                   <div className="text-slate-500 truncate">Matt4Daemon@gmail.com</div>
                 </button>
 
                 <button
                   type="button"
-                  onClick={switchToAdmin}
-                  className={`p-2 rounded border text-left transition-colors ${
-                    selectedRole === 'admin'
-                      ? 'bg-slate-800/80 border-slate-700 text-slate-200'
-                      : 'bg-slate-950 border-slate-900 text-slate-400 hover:text-slate-300'
-                  }`}
+                  onClick={() => fillTestCredentials('admin@mykonnect.fr', 'Admin2026!')}
+                  className="p-2 rounded bg-slate-950 border border-slate-800 text-left hover:border-slate-700 transition-colors"
                 >
-                  <div className="font-semibold text-slate-200">Admin Démo</div>
+                  <div className="font-semibold text-slate-300">Admin Démo</div>
                   <div className="text-slate-500 truncate">admin@mykonnect.fr</div>
                 </button>
               </div>
@@ -460,7 +583,7 @@ export const Login: React.FC = () => {
         </div>
       </main>
 
-      {/* Footer sobre et minimaliste */}
+      {/* Footer minimaliste et sobre */}
       <footer className="border-t border-slate-900 bg-slate-950 px-6 py-4">
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between text-xs text-slate-500 gap-3">
           <div>

@@ -1,6 +1,6 @@
 {
-  "name": "Konnect Client Portal",
-  "description": "Extranet client sécurisé OWASP & RGPD pour l'écosystème Matt Konnect hébergé sur o2switch (Phusion Passenger / MariaDB / LiteSpeed).",
+  "name": "My Konnect",
+  "description": "Portail extranet client sécurisé pour le suivi des projets, documents et support (Matt Konnect).",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
